@@ -23,7 +23,6 @@ resultados_modelagem/
 # Agentes e IA
 .agents/
 .claude/
-.notebook/
 .gemini/
 
 # OS
