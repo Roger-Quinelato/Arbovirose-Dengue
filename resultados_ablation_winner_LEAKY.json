@@ -1,0 +1,12 @@
+{
+  "config": "lag+clima+RA",
+  "modelo": "RF",
+  "r2_df": 0.6561657429237491,
+  "rmse_df": 13.819021055339869,
+  "accepted_complex_gain": true,
+  "best_observed_config": "lag+clima+RA",
+  "best_observed_modelo": "RF",
+  "best_delta_r2_vs_baseline": 0.0007025049712388043,
+  "best_rmse_improved_pct_vs_baseline": 0.8,
+  "reason": "Melhor config superou o baseline pelo criterio de aceite."
+}

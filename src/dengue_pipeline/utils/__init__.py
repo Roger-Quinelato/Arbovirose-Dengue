@@ -1,0 +1,1 @@
+from dengue_pipeline.utils.scaffold import celula_notebook, escrever_notebook, escrever_notebooks, atualizar_index_notebook

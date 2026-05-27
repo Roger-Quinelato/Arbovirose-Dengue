@@ -1,0 +1,24 @@
+Dicionário de Dados
+data_ini_SE : Primeiro dia da semana epidemiológica (Domingo)
+SE: Semana epidemiológica
+casos_est : Número estimado de casos por semana usando o modelo de nowcasting (nota: Os valores são atualizados retrospectivamente a cada semana)
+cases_est_min and cases_est_max: Intervalo de credibilidade de 95% do número estimado de casos
+casos: Número de casos notificados por semana (Os valores são atualizados retrospectivamente todas as semanas)
+p_rt1: Probabilidade de (Rt> 1). Para emitir o alerta laranja, usamos o critério p_rt1> 0,95 por 3 semanas ou mais.
+p_inc100k: Taxa de incidência estimada por 100.000
+Localidade_id: Divisão submunicipal (atualmente implementada apenas no Rio de Janeiro)
+nivel: Nível de alerta (1 = verde, 2 = amarelo, 3 = laranja, 4 = vermelho), mais detalhes, consulte (Saiba mais)
+id: Índice numérico
+versao_modelo: Versão do modelo (uso interno)
+Rt: Estimativa pontual do número reprodutivo de casos, ver Saiba Mais
+pop: População estimada (IBGE)
+tempmin: Média das temperaturas mínimas diárias ao longo da semana
+tempmed: Média das temperaturas diárias ao longo da semana
+tempmax: Média das temperaturas máximas diárias ao longo da semana
+umidmin: Média da umidade relativa mínima diária do ar ao longo da semana
+umidmed: Média da umidade relativa diária do ar ao longo da semana
+umidmax: Média da umidade relativa máxima diária do ar ao longo da semana
+receptivo: Indica receptividade climática, ou seja, condições para alta capacidade vetorial. 0 = desfavorável, 1 = favorável, 2 = favorável nesta semana e na semana passada, 3 = favorável por pelo menos três semanas (suficiente para completar um ciclo de transmissão)
+transmissao: Evidência de transmissão sustentada: 0 = nenhuma evidência, 1 = possível, 2 = provável, 3 = altamente provável
+nivel_inc: Incidência estimada abaixo do limiar pré-epidemia, 1 = acima do limiar pré-epidemia, mas abaixo do limiar epidêmico, 2 = acima do limiar epidêmico
+notif_accum_year: Número acumulado de casos no ano
