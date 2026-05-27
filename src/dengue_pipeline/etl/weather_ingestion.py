@@ -3,7 +3,7 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parents[3]
 
-def carregar_clima() -> pd.DataFrame:
+def carregar_cache_climatico() -> pd.DataFrame:
     """
     Carrega dados meteorológicos consolidados cruzando cache local do Open-Meteo com dados históricos da InfoDengue.
     Realiza interpolação linear para colunas de umidade faltantes.

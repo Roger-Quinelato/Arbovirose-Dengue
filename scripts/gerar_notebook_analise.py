@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parents[1]
-NOTEBOOK_PATH = BASE_DIR / "dengue_analise_modelagem copy.ipynb"
+NOTEBOOK_PATH = BASE_DIR / "legacy" / "analise_preditiva_dengue.ipynb"
 
 cells = []
 
@@ -62,7 +62,7 @@ from IPython.display import Image, display
 BASE = Path('.').resolve()
 sys.path.append(str(BASE))
 sys.path.append(str(BASE / 'scripts'))
-import executar_plano_prompts_opus as p
+import executar_pipeline_completo as p
 
 # Configurações globais de plotagem
 sns.set_theme(style="whitegrid")

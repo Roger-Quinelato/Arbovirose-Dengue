@@ -5,7 +5,7 @@ import pandas as pd
 # Caminho base para acessar arquivos de dados
 BASE_DIR = Path(__file__).resolve().parents[3]
 
-def remover_acentos_maiusculo(valor) -> str | None:
+def sanitizar_texto(valor) -> str | None:
     """
     Remove acentos e converte para maiúsculo, removendo espaços nas bordas.
     
@@ -35,7 +35,7 @@ def carregar_historico_populacao() -> pd.DataFrame:
         raise FileNotFoundError(f"Arquivo dados_processados/populacao_historica.csv não encontrado em {caminho_csv}")
     pop = pd.read_csv(caminho_csv)
     pop["RA"] = pop["RA"].astype(str)
-    pop["ra_key"] = pop["RA"].map(remover_acentos_maiusculo)
+    pop["ra_key"] = pop["RA"].map(sanitizar_texto)
     return pop
 
 def busca_ra_canonica() -> dict[str, str]:
@@ -88,8 +88,8 @@ def busca_ra_canonica() -> dict[str, str]:
     
     # Garantir que todos os aliases apontem para as chaves normalizadas no lookup
     for alias, canonical_key in aliases.items():
-        key_alias = remover_acentos_maiusculo(alias)
-        key_canonical = remover_acentos_maiusculo(canonical_key)
+        key_alias = sanitizar_texto(alias)
+        key_canonical = sanitizar_texto(canonical_key)
         if key_canonical in lookup:
             lookup[key_alias] = lookup[key_canonical]
         else:
@@ -97,7 +97,7 @@ def busca_ra_canonica() -> dict[str, str]:
             
     return lookup
 
-def normalizar_ra(valor, lookup: dict[str, str] | None = None) -> str | None:
+def padronizar_regioes_administrativas(valor, lookup: dict[str, str] | None = None) -> str | None:
     """
     Padroniza os nomes das Regiões Administrativas para maiúsculo e sem acento.
     Mapeia aliases e resolve variações de digitação ou acentuação.
@@ -109,10 +109,10 @@ def normalizar_ra(valor, lookup: dict[str, str] | None = None) -> str | None:
     Retorna:
         Nome da RA padronizado ou None caso seja inválido ou "NAO INFORMADO".
     """
-    chave = remover_acentos_maiusculo(valor)
+    chave = sanitizar_texto(valor)
     if chave is None or chave == "NAO INFORMADO":
         return None
     lookup = lookup or busca_ra_canonica()
     
     res = lookup.get(chave, chave)
-    return remover_acentos_maiusculo(res) if res else None
+    return sanitizar_texto(res) if res else None

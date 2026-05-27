@@ -8,22 +8,22 @@ from pathlib import Path
 # Configurar matplotlib para modo não-interativo antes de carregar pyplot
 matplotlib.use("Agg")
 
-from dengue_pipeline.shared_kernel import remover_acentos_maiusculo, domingo_epidemiologico
-from dengue_pipeline.etl import ler_info_saude, mascaras_target
+from dengue_pipeline.shared_kernel import sanitizar_texto, calcular_semana_epidemiologica
+from dengue_pipeline.etl import ingestar_dados_saude_local, mascaras_target
 from dengue_pipeline.etl.case_ingestion import FAMILIA_DENGUE
-from dengue_pipeline.modeling import r2_seguro, rmse, agregar_metricas
+from dengue_pipeline.modeling import calcular_r2_robusto, calcular_erro_quadratico_medio, consolidar_metricas_performance
 
 BASE_DIR = Path(__file__).resolve().parents[3]
 OUTPUT_DIR = BASE_DIR / "resultados_graficos"
 NOTEBOOK_DIR = BASE_DIR / ".notebook"
 DADOS_GOV_DIR = BASE_DIR / "dados-gov"
-FINAL_REPORT_MD = NOTEBOOK_DIR / "relatorio-final-plano-prompts-opus.md"
-SINAN_REPORT_MD = NOTEBOOK_DIR / "validacao-sinan-infosaude.md"
-ABLATION_CSV = BASE_DIR / "resultados_modelagem" / "resultados_ablation.csv"
+FINAL_REPORT_MD = NOTEBOOK_DIR / "relatorio_final_execucao.md"
+SINAN_REPORT_MD = NOTEBOOK_DIR / "validacao_consistencia_fontes.md"
+ABLATION_CSV = BASE_DIR / "resultados_modelagem" / "resultados_ablacao_nowcasting.csv"
 ABLATION_RA_CSV = BASE_DIR / "resultados_modelagem" / "resultados_ablation_por_ra.csv"
 ABLATION_PRED_CSV = BASE_DIR / "resultados_modelagem" / "predicoes_ablation.csv"
 
-def df_para_markdown(df: pd.DataFrame) -> str:
+def formatar_tabela_markdown(df: pd.DataFrame) -> str:
     """
     Converte um DataFrame do pandas em uma string formatada como tabela Markdown.
     
@@ -47,7 +47,7 @@ def df_para_markdown(df: pd.DataFrame) -> str:
         rows.append("| " + " | ".join(values) + " |")
     return "\n".join([header, separator] + rows)
 
-def executar_analise_target() -> tuple[pd.DataFrame, dict]:
+def analisar_alvo_epidemiologico() -> tuple[pd.DataFrame, dict]:
     """
     Executa a análise de definição do target epidemiológico para a modelagem.
     Avalia a frequência e proporções das classificações e tipos de dengue e plota gráficos comparativos.
@@ -56,7 +56,7 @@ def executar_analise_target() -> tuple[pd.DataFrame, dict]:
         tuple: (df_resumo_anual, dict_resumo_decisao)
     """
     print(">>> P0/P1: formalizando target epidemiologico...")
-    df = ler_info_saude()
+    df = ingestar_dados_saude_local()
     masks = mascaras_target(df)
 
     class_counts = df["i_class_final"].value_counts(dropna=False).rename_axis("valor").reset_index(name="n")
@@ -164,7 +164,7 @@ def executar_analise_target() -> tuple[pd.DataFrame, dict]:
     
     return annual, summary
 
-def gerar_graficos_eda(dataset: pd.DataFrame) -> None:
+def gerar_visualizacoes_eda(dataset: pd.DataFrame) -> None:
     """
     Gera gráficos de Análise Exploratória de Dados (EDA) e salva-os em resultados_graficos/.
     Gera curvas comparativas (Ceilândia vs Lago Sul), mapa de calor semanal e barras do Top 10 RAs.
@@ -175,8 +175,8 @@ def gerar_graficos_eda(dataset: pd.DataFrame) -> None:
     print(">>> P1: gerando graficos de EDA...")
     OUTPUT_DIR.mkdir(exist_ok=True)
     
-    ceilandia = dataset[dataset["RA"].map(remover_acentos_maiusculo).eq("CEILANDIA")]
-    lago_sul = dataset[dataset["RA"].map(remover_acentos_maiusculo).eq("LAGO SUL")]
+    ceilandia = dataset[dataset["RA"].map(sanitizar_texto).eq("CEILANDIA")]
+    lago_sul = dataset[dataset["RA"].map(sanitizar_texto).eq("LAGO SUL")]
     
     # 1. Comparativo Ceilândia vs Lago Sul
     fig, axes = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
@@ -288,7 +288,7 @@ def gerar_graficos_ablacao(result: pd.DataFrame) -> None:
     plt.savefig(OUTPUT_DIR / "ablation_contribuicao.png", dpi=220)
     plt.close()
 
-def gerar_visualizacoes_finais(df: pd.DataFrame, winner: dict, final_predictions: pd.DataFrame) -> None:
+def gerar_painel_final(df: pd.DataFrame, winner: dict, final_predictions: pd.DataFrame) -> None:
     """
     Gera visualizações finais do pipeline (Real vs Previsto global e por RAs principais)
     e redige o arquivo markdown do relatório final com os resultados.
@@ -347,7 +347,7 @@ def gerar_visualizacoes_finais(df: pd.DataFrame, winner: dict, final_predictions
     fig, axes = plt.subplots(2, 3, figsize=(16, 9), sharex=True)
     for ax, ra in zip(axes.flatten(), top6):
         g = pred_winner[pred_winner["RA"].eq(ra)].sort_values("epi_sunday")
-        score = r2_seguro(g["cases"], g["prediction"])
+        score = calcular_r2_robusto(g["cases"], g["prediction"])
         ax.plot(g["epi_sunday"], g["cases"], label="Real", color="#263238")
         ax.plot(g["epi_sunday"], g["prediction"], label="Previsto", color="#ef6c00")
         ax.set_title(f"{ra} | R2={score:.2f}")
@@ -382,13 +382,13 @@ def gerar_visualizacoes_finais(df: pd.DataFrame, winner: dict, final_predictions
     
     final_metrics = []
     for _, group in final_predictions.groupby("modelo"):
-        metrics, _ = agregar_metricas(group)
+        metrics, _ = consolidar_metricas_performance(group)
         final_metrics.append({"modelo": group["modelo"].iloc[0], **metrics})
     final_metrics_df = pd.DataFrame(final_metrics)
     final_metrics_df.to_csv(BASE_DIR / "resultados_modelagem" / "metricas_modelos_finais.csv", index=False)
 
     report = [
-        "# Relatorio final - Plano Prompts Opus",
+        "# Relatorio final - Execucao do Pipeline",
         "",
         "## Decisao de features",
         "",
@@ -397,7 +397,7 @@ def gerar_visualizacoes_finais(df: pd.DataFrame, winner: dict, final_predictions
         f"- Ganho complexo aceito pelo criterio? `{winner['accepted_complex_gain']}`.",
         f"- Motivo: {winner['reason']}",
         "",
-        "## Respostas do Prompt 6",
+        "## Respostas da Avaliacao de Data Science",
         "",
         "1. A config que agregou valor real demonstravel foi considerada apenas se superou "
         "lag-only por delta R2 > 0.05 ou RMSE melhor em >70% das RAs.",
@@ -407,15 +407,15 @@ def gerar_visualizacoes_finais(df: pd.DataFrame, winner: dict, final_predictions
         "4. O pipeline fica mais defensavel para nowcasting operacional semanal. Para forecast fechado, "
         "use o resultado recursivo como referencia; a incerteza cresce rapidamente sem casos reais recentes.",
         "5. Antes da hierarquia nacional, a compatibilidade SINAN vs info-saude precisa passar pelos criterios "
-        "de correlacao e diferenca media documentados em validacao-sinan-infosaude.md.",
+        "de correlacao e diferenca media documentados em validacao_consistencia_fontes.md.",
         "",
-        "## Ablation",
+        "## Estudo de Ablacao",
         "",
-        df_para_markdown(ablation),
+        formatar_tabela_markdown(ablation),
         "",
         "## Modelos tunados",
         "",
-        df_para_markdown(final_metrics_df),
+        formatar_tabela_markdown(final_metrics_df),
         "",
     ]
     FINAL_REPORT_MD.write_text("\n".join(report), encoding="utf-8")
@@ -435,7 +435,7 @@ def normalizar_sg_uf(series: pd.Series) -> pd.Series:
     text = series.astype(str).str.upper().str.strip()
     return numeric.eq(53) | text.eq("DF")
 
-def validar_sinan_infosaude(target_name: str = "familia_dengue") -> dict:
+def validar_consistencia_fontes(target_name: str = "familia_dengue") -> dict:
     """
     Valida a consistência de contagens entre a base federal do SINAN (DENGBR17) e a distrital do info-saude
     para o ano de 2017. Avalia métricas de correlação e erro percentual para decidir aceitação.
@@ -451,7 +451,7 @@ def validar_sinan_infosaude(target_name: str = "familia_dengue") -> dict:
     if not sinan_file.exists():
         print(f"  [AVISO] Arquivo do SINAN para validação não encontrado em {sinan_file}. Pulando validação.")
         report = [
-            "# Validacao SINAN vs info-saude",
+            "# Validacao Consistencia Fontes - SINAN vs info-saude",
             "",
             "A validação foi pulada porque o arquivo federal do SINAN (`dados-gov/DENGBR17.csv`) não está presente neste ambiente.",
         ]
@@ -493,14 +493,14 @@ def validar_sinan_infosaude(target_name: str = "familia_dengue") -> dict:
             mask_class = class_fin.isin(selected_codes)
             
         part_res = chunk.loc[mask_res & mask_class, ["DT_SIN_PRI"]].copy()
-        part_res["epi_sunday"] = domingo_epidemiologico(part_res["DT_SIN_PRI"])
+        part_res["epi_sunday"] = calcular_semana_epidemiologica(part_res["DT_SIN_PRI"])
         chunks_res.append(part_res.dropna(subset=["epi_sunday"]))
         
         part_not = chunk.loc[mask_not & mask_class, ["DT_SIN_PRI"]].copy()
-        part_not["epi_sunday"] = domingo_epidemiologico(part_not["DT_SIN_PRI"])
+        part_not["epi_sunday"] = calcular_semana_epidemiologica(part_not["DT_SIN_PRI"])
         chunks_not.append(part_not.dropna(subset=["epi_sunday"]))
 
-    def extrair_semanal_chunks(chunks: list[pd.DataFrame], name: str) -> pd.DataFrame:
+    def agregar_intervalos_semanais(chunks: list[pd.DataFrame], name: str) -> pd.DataFrame:
         if not chunks:
             return pd.DataFrame(columns=["epi_sunday", name])
         series = pd.concat(chunks, ignore_index=True)
@@ -510,10 +510,10 @@ def validar_sinan_infosaude(target_name: str = "familia_dengue") -> dict:
             & (weekly["epi_sunday"] < "2018-01-01")
         ]
 
-    sinan_res_weekly = extrair_semanal_chunks(chunks_res, "sinan_residencia")
-    sinan_not_weekly = extrair_semanal_chunks(chunks_not, "sinan_notificacao")
+    sinan_res_weekly = agregar_intervalos_semanais(chunks_res, "sinan_residencia")
+    sinan_not_weekly = agregar_intervalos_semanais(chunks_not, "sinan_notificacao")
 
-    info = ler_info_saude()
+    info = ingestar_dados_saude_local()
     masks = mascaras_target(info)
     info = info[
         masks[target_name]
@@ -584,7 +584,7 @@ def validar_sinan_infosaude(target_name: str = "familia_dengue") -> dict:
     ).to_csv(BASE_DIR / "dados_processados" / "sinan_class_fin_counts_df_2017.csv", index=False)
 
     report = [
-        "# Validacao SINAN vs info-saude",
+        "# Validacao Consistencia Fontes - SINAN vs info-saude",
         "",
         f"- Codigos CLASSI_FIN usados: `{selected_codes}`.",
         "- Observacao: o plano citava `[1, 2, 3]`, mas DENGBR17 neste workspace usa outra codificacao; "

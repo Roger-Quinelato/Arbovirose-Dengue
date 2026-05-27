@@ -6,12 +6,12 @@ from pathlib import Path
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 BASE_DIR = Path(__file__).resolve().parents[3]
-ABLATION_CSV = BASE_DIR / "resultados_modelagem" / "resultados_ablation.csv"
+ABLATION_CSV = BASE_DIR / "resultados_modelagem" / "resultados_ablacao_nowcasting.csv"
 ABLATION_RA_CSV = BASE_DIR / "resultados_modelagem" / "resultados_ablation_por_ra.csv"
 ABLATION_PRED_CSV = BASE_DIR / "resultados_modelagem" / "predicoes_ablation.csv"
-WINNER_JSON = BASE_DIR / "resultados_modelagem" / "resultados_ablation_winner.json"
+WINNER_JSON = BASE_DIR / "resultados_modelagem" / "campeao_ablacao_nowcasting.json"
 
-def r2_seguro(y_true, y_pred) -> float:
+def calcular_r2_robusto(y_true, y_pred) -> float:
     """
     Calcula o coeficiente de determinação (R²) de forma segura, tratando casos com variância
     nula ou número insuficiente de amostras retornando NaN ao invés de erro.
@@ -29,7 +29,7 @@ def r2_seguro(y_true, y_pred) -> float:
         return float("nan")
     return float(r2_score(y_true, y_pred))
 
-def rmse(y_true, y_pred) -> float:
+def calcular_erro_quadratico_medio(y_true, y_pred) -> float:
     """
     Calcula a raiz do erro quadrático médio (RMSE).
     
@@ -42,7 +42,7 @@ def rmse(y_true, y_pred) -> float:
     """
     return float(np.sqrt(mean_squared_error(y_true, y_pred)))
 
-def agregar_metricas(pred_df: pd.DataFrame) -> tuple[dict, pd.DataFrame]:
+def consolidar_metricas_performance(pred_df: pd.DataFrame) -> tuple[dict, pd.DataFrame]:
     """
     Consolida métricas globais para o DF e individuais por Região Administrativa (RA).
     Calcula R², MAE e RMSE para ambas as escalas.
@@ -56,9 +56,9 @@ def agregar_metricas(pred_df: pd.DataFrame) -> tuple[dict, pd.DataFrame]:
     df_total = pred_df.groupby("epi_sunday", as_index=False)[["cases", "prediction"]].sum()
     
     # Métricas base
-    r2 = r2_seguro(df_total["cases"], df_total["prediction"])
+    r2 = calcular_r2_robusto(df_total["cases"], df_total["prediction"])
     mae = float(mean_absolute_error(df_total["cases"], df_total["prediction"]))
-    rmse_val = rmse(df_total["cases"], df_total["prediction"])
+    rmse_val = calcular_erro_quadratico_medio(df_total["cases"], df_total["prediction"])
     
     # MAPE — apenas para semanas com casos > 0 (evita divisão por zero)
     nonzero = df_total[df_total["cases"] > 0].copy()
@@ -95,9 +95,9 @@ def agregar_metricas(pred_df: pd.DataFrame) -> tuple[dict, pd.DataFrame]:
         rows.append(
             {
                 "RA": ra,
-                "r2_ra": r2_seguro(group["cases"], group["prediction"]),
+                "r2_ra": calcular_r2_robusto(group["cases"], group["prediction"]),
                 "mae_ra": float(mean_absolute_error(group["cases"], group["prediction"])),
-                "rmse_ra": rmse(group["cases"], group["prediction"]),
+                "rmse_ra": calcular_erro_quadratico_medio(group["cases"], group["prediction"]),
             }
         )
     ra_df = pd.DataFrame(rows)
@@ -106,7 +106,7 @@ def agregar_metricas(pred_df: pd.DataFrame) -> tuple[dict, pd.DataFrame]:
     metrics["rmse_media_ras"] = float(ra_df["rmse_ra"].mean(skipna=True))
     return metrics, ra_df
 
-def executar_testes_ablacao(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+def executar_estudo_ablacao(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     """
     Executa testes de ablação sistemáticos variando a complexidade das features
     (lag-only, lag+clima, lag+clima+RA, lag+clima+RA+incid-target) e algoritmos (RF, XGB).
@@ -119,7 +119,7 @@ def executar_testes_ablacao(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
         tuple: (df_resultados_ablation, dict_especificacao_vencedora)
     """
     print(">>> P1: executando ablation tests...")
-    from dengue_pipeline.modeling.train_tuning import ajustar_prever_config
+    from dengue_pipeline.modeling.train_tuning import executar_ajuste_previsao
     configs = [
         "lag-only",
         "lag+clima",
@@ -134,7 +134,7 @@ def executar_testes_ablacao(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
 
     for config, model_name in itertools.product(configs, models):
         print(f"  - {config} / {model_name}")
-        model, pred_df, metrics, ra_metrics, features = ajustar_prever_config(df, config, model_name)
+        model, pred_df, metrics, ra_metrics, features = executar_ajuste_previsao(df, config, model_name)
         key = (config, model_name)
         ra_by_key[key] = ra_metrics
         rows.append(

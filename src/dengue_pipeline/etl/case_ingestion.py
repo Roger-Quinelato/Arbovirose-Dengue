@@ -1,6 +1,6 @@
 import pandas as pd
 from pathlib import Path
-from dengue_pipeline.shared_kernel import remover_acentos_maiusculo, domingo_epidemiologico
+from dengue_pipeline.shared_kernel import sanitizar_texto, calcular_semana_epidemiologica
 
 BASE_DIR = Path(__file__).resolve().parents[3]
 DIRETORIO_INFO_SAUDE = BASE_DIR / "info-saude"
@@ -19,7 +19,7 @@ FAMILIA_DENGUE = {
     "DENGUE GRAVE",
 }
 
-def ler_info_saude() -> pd.DataFrame:
+def ingestar_dados_saude_local() -> pd.DataFrame:
     """
     Lê os arquivos CSV do diretório de vigilância de saúde, consolidando-os.
     Aplica normalização de strings e calcula o domingo epidemiológico para cada caso.
@@ -47,13 +47,13 @@ def ler_info_saude() -> pd.DataFrame:
         raise FileNotFoundError(f"Nenhum arquivo CSV encontrado em {DIRETORIO_INFO_SAUDE}")
         
     df_all = pd.concat(frames, ignore_index=True)
-    df_all["class_norm"] = df_all["i_class_final"].map(remover_acentos_maiusculo)
-    df_all["disease_norm"] = df_all["i_desc_classificacao"].map(remover_acentos_maiusculo)
-    df_all["uf_norm"] = df_all["i_desc_uf_res"].map(remover_acentos_maiusculo)
-    df_all["ra_norm_raw"] = df_all["i_desc_radf_res"].map(remover_acentos_maiusculo)
+    df_all["class_norm"] = df_all["i_class_final"].map(sanitizar_texto)
+    df_all["disease_norm"] = df_all["i_desc_classificacao"].map(sanitizar_texto)
+    df_all["uf_norm"] = df_all["i_desc_uf_res"].map(sanitizar_texto)
+    df_all["ra_norm_raw"] = df_all["i_desc_radf_res"].map(sanitizar_texto)
     df_all["date"] = pd.to_datetime(df_all["i_data_prim_sintomas"], errors="coerce", utc=True)
     df_all["ano"] = df_all["date"].dt.year
-    df_all["epi_sunday"] = domingo_epidemiologico(df_all["i_data_prim_sintomas"])
+    df_all["epi_sunday"] = calcular_semana_epidemiologica(df_all["i_data_prim_sintomas"])
     return df_all
 
 def mascaras_target(df: pd.DataFrame) -> dict[str, pd.Series]:

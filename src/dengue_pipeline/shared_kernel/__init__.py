@@ -1,2 +1,7 @@
-from dengue_pipeline.shared_kernel.ra_registry import remover_acentos_maiusculo, carregar_historico_populacao, busca_ra_canonica, normalizar_ra
-from dengue_pipeline.shared_kernel.epi_calendar import domingo_epidemiologico
+from dengue_pipeline.shared_kernel.ra_registry import sanitizar_texto, carregar_historico_populacao, busca_ra_canonica, padronizar_regioes_administrativas
+from dengue_pipeline.shared_kernel.epi_calendar import calcular_semana_epidemiologica
+
+# Aliases para retrocompatibilidade
+remover_acentos_maiusculo = sanitizar_texto
+normalizar_ra = padronizar_regioes_administrativas
+domingo_epidemiologico = calcular_semana_epidemiologica

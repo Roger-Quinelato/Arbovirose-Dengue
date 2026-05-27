@@ -1,2 +1,6 @@
-from dengue_pipeline.etl.case_ingestion import ler_info_saude, mascaras_target
-from dengue_pipeline.etl.weather_ingestion import carregar_clima
+from dengue_pipeline.etl.case_ingestion import ingestar_dados_saude_local, mascaras_target
+from dengue_pipeline.etl.weather_ingestion import carregar_cache_climatico
+
+# Aliases para retrocompatibilidade
+ler_info_saude = ingestar_dados_saude_local
+carregar_clima = carregar_cache_climatico

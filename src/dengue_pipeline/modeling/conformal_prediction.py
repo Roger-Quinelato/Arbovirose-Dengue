@@ -20,7 +20,7 @@ BASE_DIR = Path(__file__).resolve().parents[3]
 CONFORMAL_CALIBRATION_JSON = BASE_DIR / "resultados_modelagem" / "conformal_calibration.json"
 
 
-def calibrar_conformal(
+def calibrar_intervalos_confianca(
     df_calibracao: pd.DataFrame,
     alpha: float = 0.10,
     epsilon: float = 0.01,
@@ -63,7 +63,7 @@ def calibrar_conformal(
     }
 
 
-def aplicar_intervalos(
+def aplicar_limites_confianca(
     df_forecast: pd.DataFrame,
     calibracao: dict,
     horizonte_k: int = 1,

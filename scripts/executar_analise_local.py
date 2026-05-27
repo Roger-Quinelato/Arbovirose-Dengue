@@ -6,7 +6,7 @@ import base64
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parents[1]
-NOTEBOOK_PATH = BASE_DIR / "dengue_analise_modelagem copy.ipynb"
+NOTEBOOK_PATH = BASE_DIR / "legacy" / "analise_preditiva_dengue.ipynb"
 
 # Import matplotlib and set backend to Agg
 import matplotlib

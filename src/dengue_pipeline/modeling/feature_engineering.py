@@ -2,13 +2,13 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 
-from dengue_pipeline.shared_kernel import normalizar_ra, carregar_historico_populacao
-from dengue_pipeline.etl import ler_info_saude, mascaras_target, carregar_clima
+from dengue_pipeline.shared_kernel import padronizar_regioes_administrativas, carregar_historico_populacao
+from dengue_pipeline.etl import ingestar_dados_saude_local, mascaras_target, carregar_cache_climatico
 
 BASE_DIR = Path(__file__).resolve().parents[3]
 CAMINHO_DATASET_PARQUET = BASE_DIR / "dados_processados" / "dataset_processado.parquet"
 
-def construir_dataset_processado(target_name: str = "familia_dengue") -> pd.DataFrame:
+def construir_dataset_consolidado(target_name: str = "familia_dengue") -> pd.DataFrame:
     """
     Constrói o dataset consolidado agregando dados de casos, históricos de população e clima.
     Gera lags temporais de 1 a 4 semanas para casos/incidência, lags de 2 a 8 semanas para variáveis
@@ -24,10 +24,10 @@ def construir_dataset_processado(target_name: str = "familia_dengue") -> pd.Data
         Assume que os dados de casos e climáticos são carregáveis via ETL.
         Salva o resultado final processado no formato Parquet na raiz do projeto.
     """
-    df = ler_info_saude()
+    df = ingestar_dados_saude_local()
     pop = carregar_historico_populacao()
     lookup = pop["RA"].unique()  # As RAs canônicas normalizadas
-    lookup_dict = {normalizar_ra(r): r for r in lookup}
+    lookup_dict = {padronizar_regioes_administrativas(r): r for r in lookup}
     masks = mascaras_target(df)
     
     if target_name not in masks:
@@ -35,7 +35,7 @@ def construir_dataset_processado(target_name: str = "familia_dengue") -> pd.Data
         
     df = df.loc[masks[target_name]].copy()
     df = df[df["uf_norm"].eq("DF")].copy()
-    df["RA"] = df["i_desc_radf_res"].map(lambda x: normalizar_ra(x, lookup_dict))
+    df["RA"] = df["i_desc_radf_res"].map(lambda x: padronizar_regioes_administrativas(x, lookup_dict))
     df = df[df["RA"].notna() & df["epi_sunday"].notna()].copy()
     
     cases = df.groupby(["epi_sunday", "RA"]).size().reset_index(name="cases")
@@ -55,7 +55,7 @@ def construir_dataset_processado(target_name: str = "familia_dengue") -> pd.Data
     dataset["incidencia_100k"] = dataset["cases"] / dataset["populacao"] * 100000
     
     # Merge com clima (otimizado: lags calculados no clima consolidado pré-merge)
-    climate = carregar_clima().sort_values("epi_sunday").reset_index(drop=True)
+    climate = carregar_cache_climatico().sort_values("epi_sunday").reset_index(drop=True)
     for col in ["precip_sum", "temp_mean", "umidmed"]:
         for lag in range(2, 9):
             climate[f"{col}_lag_{lag}"] = climate[col].shift(lag)
@@ -96,7 +96,7 @@ def construir_dataset_processado(target_name: str = "familia_dengue") -> pd.Data
     
     return dataset
 
-def especificacao_features(config: str) -> dict:
+def obter_configuracao_features(config: str) -> dict:
     """
     Retorna o dicionário de especificação das features a serem utilizadas de acordo com a configuração.
     
@@ -128,7 +128,7 @@ def especificacao_features(config: str) -> dict:
         
     raise ValueError(f"Configuração de features desconhecida: {config}")
 
-def preparar_design(df: pd.DataFrame, config: str, dummy_columns: list[str] | None = None):
+def preparar_matriz_design(df: pd.DataFrame, config: str, dummy_columns: list[str] | None = None):
     """
     Prepara a matriz de design (X) e a variável resposta transformada (y = log1p(target)).
     
@@ -140,7 +140,7 @@ def preparar_design(df: pd.DataFrame, config: str, dummy_columns: list[str] | No
     Retorna:
         tuple: (X, y, df_filtrado, features, spec)
     """
-    spec = especificacao_features(config)
+    spec = obter_configuracao_features(config)
     frame = df.copy()
     features = list(spec["base"])
     

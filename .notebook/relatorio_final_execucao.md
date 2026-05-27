@@ -1,4 +1,4 @@
-# Relatorio final - Plano Prompts Opus
+# Relatorio final - Execucao do Pipeline
 
 ## Decisao de features
 
@@ -7,15 +7,15 @@
 - Ganho complexo aceito pelo criterio? `False`.
 - Motivo: Nenhuma config complexa superou o baseline; lag-only vence por conservadorismo.
 
-## Respostas do Prompt 6
+## Respostas da Avaliacao de Data Science
 
 1. A config que agregou valor real demonstravel foi considerada apenas se superou lag-only por delta R2 > 0.05 ou RMSE melhor em >70% das RAs.
 2. Resultado: Nenhuma config complexa superou o baseline; lag-only vence por conservadorismo.
 3. RA com maior RMSE na config vencedora: `SANTA MARIA` (RMSE=3.806). Hipotese: RAs com picos localizados e baixa base semanal sao mais dificeis para modelos globais.
 4. O pipeline fica mais defensavel para nowcasting operacional semanal. Para forecast fechado, use o resultado recursivo como referencia; a incerteza cresce rapidamente sem casos reais recentes.
-5. Antes da hierarquia nacional, a compatibilidade SINAN vs info-saude precisa passar pelos criterios de correlacao e diferenca media documentados em validacao-sinan-infosaude.md.
+5. Antes da hierarquia nacional, a compatibilidade SINAN vs info-saude precisa passar pelos criterios de correlacao e diferenca media documentados em validacao_consistencia_fontes.md.
 
-## Ablation
+## Estudo de Ablacao
 
 | config | modelo | n_features | r2_df | mae_df | rmse_df | mape_df | smape_df | hit_rate_picos | r2_media_ras | mae_media_ras | rmse_media_ras | delta_r2_df_vs_prev | rmse_improved_pct_vs_prev | passes_acceptance_vs_prev |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |

@@ -1,6 +1,6 @@
 import pandas as pd
 
-def domingo_epidemiologico(series: pd.Series) -> pd.Series:
+def calcular_semana_epidemiologica(series: pd.Series) -> pd.Series:
     """
     Calcula o domingo da semana epidemiológica correspondente para uma série de datas.
     

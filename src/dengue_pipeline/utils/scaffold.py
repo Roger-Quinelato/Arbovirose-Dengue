@@ -67,45 +67,45 @@ def escrever_notebooks() -> None:
         "BASE = Path('.').resolve()\n"
         "sys.path.append(str(BASE))\n"
         "sys.path.append(str(BASE / 'scripts'))\n"
-        "import executar_plano_prompts_opus as p"
+        "import executar_pipeline_completo as p"
     )
     
     main_cells = [
-        ("markdown", "# Dengue DF - Analise e Modelagem\nNotebook gerado automaticamente pelo plano `plano_prompts_opus.md`."),
+        ("markdown", "# Dengue DF - Análise e Modelagem\nNotebook gerado automaticamente pelo plano `plano_execucao_pipeline.md`."),
         ("code", codigo_setup_notebook),
-        ("markdown", "## Secao 1 - Formalizacao do target"),
+        ("markdown", "## Seção 1 - Formalização do target"),
         ("code", "target_annual, target_decision = p.run_prompt1_target_analysis()\ntarget_annual"),
-        ("markdown", "## Secoes 2 a 5 - Limpeza, populacao, clima, sazonalidade e EDA"),
+        ("markdown", "## Seções 2 a 5 - Limpeza, população, clima, sazonalidade e EDA"),
         ("code", "dataset = p.build_processed_dataset(target_decision['target_name'])\ndataset.head()"),
-        ("markdown", "## Secao 6 - Rolling validation sem leakage"),
+        ("markdown", "## Seção 6 - Rolling validation sem leakage"),
         ("code", "rolling = p.run_rolling_validation(dataset)\nrolling"),
-        ("markdown", "## Secao 7 - Ablation tests"),
+        ("markdown", "## Seção 7 - Testes de ablação"),
         ("code", "ablation, winner = p.run_ablation_tests(dataset)\nablation"),
-        ("markdown", "## Secao 8 - Tuning"),
+        ("markdown", "## Seção 8 - Tuning"),
         ("code", "tuning, final_predictions = p.tune_models(dataset, winner['config'])\ntuning.head()"),
-        ("markdown", "## Secao 9 - Visualizacoes e relatorio final"),
+        ("markdown", "## Seção 9 - Visualizações e relatório final"),
         ("code", "p.make_final_visuals(dataset, winner, final_predictions)\nprint(Path(p.FINAL_REPORT_MD).read_text(encoding='utf-8')[:3000])"),
     ]
-    escrever_notebook(BASE_DIR / "dengue_analise_modelagem.ipynb", "Dengue DF - Analise e Modelagem", main_cells)
+    escrever_notebook(BASE_DIR / "legacy" / "analise_preditiva_dengue.ipynb", "Dengue DF - Análise e Modelagem", main_cells)
 
     sinan_cells = [
-        ("markdown", "# Validacao SINAN vs info-saude\nPre-requisito para hierarquia nacional futura."),
+        ("markdown", "# Validação SINAN vs info-saude\nPré-requisito para hierarquia nacional futura."),
         ("code", codigo_setup_notebook),
-        ("markdown", "## Validacao 2017"),
+        ("markdown", "## Validação 2017"),
         ("code", "resultado = p.validate_sinan_infosaude('familia_dengue')\nresultado"),
-        ("markdown", "## Relatorio"),
+        ("markdown", "## Relatório"),
         ("code", "print(Path(p.SINAN_REPORT_MD).read_text(encoding='utf-8'))"),
     ]
-    escrever_notebook(BASE_DIR / "validacao_sinan_infosaude.ipynb", "Validacao SINAN vs info-saude", sinan_cells)
+    escrever_notebook(BASE_DIR / "legacy" / "validacao_consistencia_fontes.ipynb", "Validação SINAN vs info-saude", sinan_cells)
 
 def atualizar_index_notebook() -> None:
     """
     Atualiza o arquivo de índice (.notebook/INDEX.md) registrando os novos artefatos
     gerados caso as entradas ainda não existam.
     """
-    entry1 = "| [target-formalizacao.md](target-formalizacao.md) | `target`, `p0`, `filtros` | Decisao documentada do target epidemiologico usado na modelagem |\n"
-    entry2 = "| [relatorio-final-plano-prompts-opus.md](relatorio-final-plano-prompts-opus.md) | `relatorio`, `ablation`, `modelagem` | Resultado final da execucao P0/P1 do plano revisado |\n"
-    entry3 = "| [validacao-sinan-infosaude.md](validacao-sinan-infosaude.md) | `sinan`, `validacao`, `p2` | Validacao de compatibilidade entre SINAN 2017 e info-saude |\n"
+    entry1 = "| [target-formalizacao.md](target-formalizacao.md) | `target`, `p0`, `filtros` | Decisão documentada do target epidemiológico usado na modelagem |\n"
+    entry2 = "| [relatorio_final_execucao.md](relatorio_final_execucao.md) | `relatorio`, `ablation`, `modelagem` | Resultado final da execução P0/P1 do plano revisado |\n"
+    entry3 = "| [validacao_consistencia_fontes.md](validacao_consistencia_fontes.md) | `sinan`, `validacao`, `p2` | Validação de compatibilidade entre SINAN 2017 e info-saude |\n"
     
     index_path = NOTEBOOK_DIR / "INDEX.md"
     if not index_path.exists():
