@@ -1,140 +1,157 @@
-# Síntese Científica e Análise de Dados: Arbovirose da Dengue no DF
+# Resumo Executivo da Modelagem de Arboviroses (Dengue) no Distrito Federal
 
-Este documento apresenta uma análise detalhada das bases de dados disponíveis (`info-saude` e `dados-gov`) e uma síntese rigorosa dos artigos científicos contidos na pasta `C:\arbodf\DocML\artigos`. O objetivo é fornecer insights práticos e subsidiar tecnicamente o seu projeto de modelagem preditiva de dengue no Distrito Federal (DF).
+Este documento apresenta o resumo executivo, a fundamentação científica e a especificação técnica do pipeline de modelagem preditiva de dengue (**DocML**) desenvolvido para o Distrito Federal (DF). Ele unifica a síntese da literatura científica, a análise das fontes de dados, as decisões arquiteturais de design e as métricas experimentais consolidadas obtidas nas validações temporais.
 
 ---
 
-## 1. Síntese da Literatura Científica (Artigos na pasta `artigos`)
+## 📚 1. Síntese da Literatura Científica (One Health & Machine Learning)
 
-Os artigos fornecem abordagens complementares que cobrem desde diagnósticos clínicos baseados em aprendizado de máquina até previsões epidemiológicas baseadas em variáveis climáticas sob a ótica de *One Health*.
-
-> [!NOTE]
-> O artigo **"Artificial Intelligence In Medicine.pdf"** foca inteiramente no monitoramento e previsão em tempo real de surtos de **patógenos respiratórios** (como COVID-19) no Canadá e países do sul da África usando CNN, GRU e GNN. Ele não cita dengue em seu texto, mas serve como excelente referência para modelagem de séries temporais biológicas com redes neurais recorrentes.
+O design do pipeline **DocML** fundamenta-se nas principais conclusões extraídas da literatura científica presente no repositório (`artigos/`), estabelecendo correlações biológicas diretas com as features implementadas.
 
 ### 1.1 Algoritmos de Melhor Desempenho
 
-A literatura divide a aplicação de Machine Learning/Deep Learning em duas frentes distintas:
+A literatura divide as aplicações de Inteligência Artificial para dengue em dois eixos metodológicos:
 
-#### A. Classificação e Diagnóstico Clínico (Pacientes Suspeitos)
-*Artigo de Referência: Andrade Girón et al. (Informatics 2025 - Revisão Sistemática)*
-*   **Support Vector Machines (SVM):** Identificado como o algoritmo mais eficiente e robusto para classificar se um paciente tem dengue ou não com base em sintomas clínicos e dados laboratoriais (presente em 25% dos estudos revisados). A variante **PCA-SVM (poly-5)** destacou-se com **99,52% de acurácia**, 99,75% de sensibilidade e 99,09% de especificidade ao reduzir a dimensionalidade dos dados clínicos antes da classificação.
-*   **Random Forest (RF):** O segundo algoritmo mais utilizado (15,62% dos artigos), apresentando acurácia consistente entre **85% e 90%** em dados clínicos.
+#### A. Previsão Epidemiológica e Séries Temporais (Foco do DocML)
+*Artigos de Referência: Marcelo da Costa (Sobral-CE, 2025) & Cabrera et al. (América Latina, 2022)*
+*   **Random Forest (RF):** Identificado como um regressor altamente estável para séries curtas ou quando há forte ruído de notificação. No entanto, a literatura demonstra que o Random Forest tradicional sem engenharia de atributos climáticos e atrasos temporais apresenta baixa performance ($R^2 < 0.0$). A inclusão de lags e médias móveis é a chave para o desempenho satisfatório ($R^2 \approx 0.80$).
+*   **Modelos de Boosting (XGBoost / LightGBM):** Apresentam excelente adaptação para capturar relações não-lineares complexas em dados tabulares contendo muitas features correlacionadas.
+*   **LSTM (Long Short-Term Memory):** Demonstraram capacidade superior para prever tendências de longo prazo e picos em séries temporais muito longas e contínuas de dados agregados (ex: nível municipal/nacional). Para resoluções espaciais mais finas (como Regiões Administrativas ou bairros), os regressores baseados em árvores são frequentemente mais robustos.
 
-#### B. Previsão Epidemiológica e Séries Temporais (Contagem de Casos)
-*Artigos de Referência: Marcelo da Costa (Tese Sobral-CE, 2025) & Cabrera et al. (Revisão América Latina, 2022)*
-*   **Random Forest (RF) com Engenharia de Atributos:** Na tese de Sobral-CE, o Random Forest alcançou um desempenho notável de **$R^2 = 0,80$** (RMSE = 49,32, MAE = 27,38). O ponto crucial é que o Random Forest tradicional sem engenharia de variáveis teve desempenho pífio ($R^2 = -0,27$). O sucesso ocorreu exclusivamente após a criação de:
-    1.  *Médias Móveis* (2, 3 e 6 meses) da precipitação e temperatura média.
-    2.  *Lags Temporais* (atrasos cronológicos) das variáveis climáticas.
-*   **LSTM (Long Short-Term Memory):** Redes Neurais Recorrentes LSTM apresentaram desempenho superior às regressões tradicionais (como SVR - Support Vector Regression) para capturar as flutuações sazonais abruptas e picos epidêmicos ao longo dos anos.
-    *   No estudo de *San Juan, Porto Rico* (Cabrera et al., 2022), a rede LSTM demonstrou capacidade superior de capturar tendências de subida e queda de casos em relação à SVR.
-    *   No estudo de *Natal, Brasil* (Cabrera et al., 2022), uma rede LSTM que combinava o histórico de casos com o **Índice de Densidade de Ovos (ovitrampas)** obteve coeficientes de correlação de **0,87 a 0,92**, prevendo surtos com 3 a 6 semanas de antecedência.
-*   **Ensemble (Modelos Híbridos):** A combinação ponderada de Random Forest e LSTM é útil, mas o seu resultado é severamente arrastado para baixo caso um dos modelos tenha métricas muito ruins (como ocorreu na tese de Sobral, onde o LSTM teve $R^2$ de -0,21 e puxou o Ensemble para $R^2 = 0,13$).
+#### B. Diagnóstico Clínico e Triagem Individual
+*Artigo de Referência: Andrade Girón et al. (Informatics 2025)*
+*   **Support Vector Machines (SVM):** Kernel SVM (especialmente a variante PCA-poly-5) é o algoritmo mais preciso para classificação binária clínica (dengue vs. outras febres) baseado em sintomas iniciais, alcançando sensibilidade superior a $99\%$.
 
 ---
 
-### 1.2 Variáveis Mais Importantes nas Previsões
+### 1.2 Variáveis Preditivas e Correlações Biológicas (Efeito Lag)
 
-As variáveis preditivas de maior peso são divididas em quatro categorias principais pela literatura:
+As variáveis meteorológicas regulam diretamente o ciclo de vida do vetor (*Aedes aegypti*) e o período de incubação do vírus, mas seus efeitos na contagem de casos não são imediatos:
 
 ```mermaid
-graph TD
-    A[Variáveis Preditivas de Dengue] --> B[Climatológicas / Meteorológicas]
-    A --> C[Ambientais / Geográficas]
-    A --> D[Demográficas / Sociais]
-    A --> E[Vetoriais / Clínicas]
-    
-    B --> B1[Temperatura: Média, Mín, Máx]
-    B --> B2[Umidade Relativa do Ar]
-    B --> B3[Precipitação e Lags Temporais]
-    B --> B4[Índices Globais: ENSO / Niño 3.4]
-    
-    C --> C1[NDVI: Vegetação e Corpos d'água]
-    C --> C2[Altitude: Correlação Negativa]
-    C --> C3[Urbanização e Densidade de Vias]
-    
-    D --> D1[Padrões de Deslocamento e Commuting]
-    D --> D2[Armazenamento de Água e Saneamento]
-    D --> D3[Coleta de Lixo e Imóveis Abandonados]
-    
-    E --> E1[Índice de Densidade de Ovos: Ovitrampas]
-    E --> E2[Hematócrito e Contagem de Plaquetas]
+flowchart TD
+    Chuva[Precipitação e Umidade] -->|Lag de 2 a 8 semanas| Criadouros[Aumento de Criadouros e Larvas]
+    Temperatura[Temperatura Média Elevada] -->|Lag de 2 a 6 semanas| CicloLarval[Aceleração do Ciclo Larval e Picadas]
+    CicloLarval --> Surto[Pico de Casos Notificados]
+    Criadouros --> Surto
 ```
 
-#### A. Climatológicas e Meteorológicas (As mais críticas)
-1.  **Temperatura (Média, Máxima e Mínima):**
-    *   *Mecanismo biológico:* Temperaturas elevadas aceleram o desenvolvimento das larvas, produzem mosquitos menores (que digerem sangue mais rápido e necessitam picar com mais frequência) e **reduzem drasticamente o período de incubação extrínseca** do vírus no mosquito (caindo de 12 dias a 30°C para apenas 7 dias entre 32°C e 35°C).
-2.  **Umidade Relativa do Ar:**
-    *   *Mecanismo biológico:* Níveis elevados de umidade aumentam significativamente a **longevidade do mosquito**, permitindo que ele viva tempo suficiente para incubar o vírus e transmiti-lo a múltiplos hospedeiros.
-3.  **Precipitação (Chuva):**
-    *   *Mecanismo biológico:* Cria criadouros juvenis em áreas urbanas. Contudo, a literatura destaca que chuvas torrenciais podem "lavar" as larvas temporariamente, mas geram criadouros em abundância no longo prazo.
-    *   *Paradoxo da Seca:* Baixa pluviosidade também pode elevar casos devido ao aumento do armazenamento doméstico inadequado de água em recipientes artificiais.
-4.  **ENSO (El Niño Oscilação Sul):**
-    *   Anomalias na temperatura da superfície do mar no oceano Pacífico (região **Niño 3.4**) alteram o clima na América Latina a cada 2 a 7 anos, desencadeando invernos mais quentes e secos que propiciam surtos históricos.
-
-#### B. Ambientais e Geográficas
-1.  **Índice de Densidade de Ovos (Ovitrampas):** O preditor biológico direto de maior relevância temporal.
-2.  **NDVI (Normalized Difference Vegetation Index):** Obtido via satélite, serve para mapear corpos d'água (NDVI negativo) e adensamento de vegetação que serve de abrigo úmido para mosquitos.
-3.  **Altitude:** Correlação negativa. O *Aedes aegypti* tem dificuldades biomecânicas de voo em altitudes elevadas devido ao ar rarefeito, embora as mudanças climáticas estejam empurrando a linha de transmissão para altitudes antes consideradas seguras.
-
-#### C. Demográficas e Socioeconômicas
-1.  **Saneamento e Água Encanada:** A falta de abastecimento regular induz o armazenamento artificial de água em baldes/tambores sem tampa.
-2.  **Coleta de Lixo e Imóveis Abandonados:** Lixo exposto acumula água da chuva; casas vazias servem de criadouros sem controle sanitário.
-3.  **Mobilidade Populacional (*Commuting*):** Os padrões diários de viagem das pessoas (trabalho/estudo) são os principais disseminadores espaciais do vírus nas manchas urbanas.
+*   **Temperatura Média (Lag de 2 a 8 semanas):** Temperaturas na faixa de $28^\circ\text{C}$ a $32^\circ\text{C}$ reduzem significativamente o período de incubação extrínseca (tempo necessário para o vírus se replicar no estômago do mosquito e migrar para as glândulas salivares), caindo de 12 para apenas 7 dias.
+*   **Umidade Relativa do Ar (Lag de 2 a 8 semanas):** Umidade elevada ($>70\%$) estende consideravelmente a expectativa de vida do mosquito adulto. Um mosquito que vive mais tempo tem probabilidade exponencialmente maior de completar a incubação do vírus e transmiti-lo a múltiplos hospedeiros.
+*   **Precipitação Acumulada (Lag de 2 a 8 semanas):** Cria depósitos artificiais de água parada em áreas urbanas.
+*   **Autocorrelação Epidemiológica (Lags de Casos - 1 a 4 semanas):** Captura a inércia biológica da transmissão ativa. O número de infectados na semana corrente é o melhor preditor do pool de transmissão disponível para a semana seguinte.
 
 ---
 
-## 2. Análise Prática das Bases de Dados do Projeto
+## 📊 2. Estrutura e Consolidação das Bases de Dados
 
-A leitura estruturada das suas bases de dados revela um ecossistema complementar perfeito para estruturar o seu projeto de dengue no DF:
+O Distrito Federal apresenta um ecossistema de dados composto por duas bases complementares:
 
-### 2.1 Base Local: `info-saude`
-*Exemplo analisado: `dados_dengue-18052026-ano_2018.csv` (~4 mil registros) e `dados_dengue-10042026-ano_2024.csv` (~325 mil registros).*
+### 2.1 Base Distrital: `info-saude`
+*   **Foco**: Monitoramento territorial focado nas 35 Regiões Administrativas (RAs).
+*   **Representatividade**: Entre $94.3\%$ e $97.6\%$ dos registros referem-se a residentes reais do DF.
+*   **Vantagem**: Contém a variável espacial `i_desc_radf_res` (georreferenciamento por RA) e a temporal `i_data_prim_sintomas` (resolução diária/semanal), permitindo agregação em séries temporais finas por localidade.
 
-Esta base é um registro **altamente focado e georreferenciado localmente** no DF:
-*   **Foco Regional:** Entre 94,3% (2018) e 97,6% (2024) dos pacientes registrados de fato **residem no DF**.
-*   **Dados Espaciais Ricos:** Possui a coluna `i_desc_radf_res` que identifica a **Região Administrativa (RA)** de residência do paciente (Ceilândia, Samambaia, Santa Maria, Taguatinga, etc.).
-*   **Estrutura Simples (15 Colunas Semicolon-Separated):**
-    *   *Temporal:* `i_data_prim_sintomas` (excelente para agregar séries temporais diárias ou semanais), `i_ano_semana_prim_sintomas_svs`.
-    *   *Clínica Básica:* `i_class_final` ("Caso Provável" vs. "Caso Descartado"), `i_desc_classificacao` ("Dengue").
-    *   *Demográfica Básica:* `i_sexo`, `i_faixa_etaria`, `i_desc_raca_cor`.
-    *   *Gravidade Básica:* `i_desc_hospitalizacao` ("Sim" ou "Não"), `i_desc_evolucao` ("Cura", "Óbito").
-
-> [!TIP]
-> A base de **2024** é uma das mais ricas para análise devido ao grande volume epidêmico no DF (325.032 notificações na base), apresentando dados de localização detalhados (ex: Ceilândia registrou sozinha 42.465 casos residenciais nessa base).
+### 2.2 Base Federal: `dados-gov` (SINAN Nacional)
+*   **Foco**: Ficha de Notificação de Dengue oficial detalhada.
+*   **Filtro Territorial**: Filtrável para o DF através do código de UF `53` (`SG_UF` ou `SG_UF_NOT`).
+*   **Riqueza de Features**: Possui 107 colunas contendo sintomas clínicos detalhados (exantema, mialgia, plaquetopenia via `PLAQ_MENOR`, hematócrito elevado via `HEMA_MAIOR`), permitindo a modelagem de gravidade de casos e triagem hospitalar.
 
 ---
 
-### 2.2 Base Nacional: `dados-gov` (SINAN Nacional)
-*Exemplo analisado: `DENGBR08.csv` (Ano 2008) e `DENGBR17.csv` (Ano 2017).*
+## ⚙️ 3. Arquitetura Técnica do Pipeline DocML
 
-Esta base é o **banco de dados oficial completo do SINAN** (Ficha de Notificação de Dengue do Ministério da Saúde). Embora contenha os dados de todo o Brasil, os registros do DF podem ser filtrados usando o código do IBGE **'53'** nas colunas `SG_UF_NOT` (notificação) e `SG_UF` (residência):
-*   **DF em 2008 (`DENGBR08`):** 3.556 casos notificados e 3.277 residentes no DF (dentro de 919.324 registros nacionais).
-*   **DF em 2017 (`DENGBR17`):** 6.489 casos notificados e 6.069 residentes no DF (dentro de 518.483 registros nacionais).
+O pipeline **DocML** foi estruturado de forma modular (conforme [ADR-001](.notebook/adr-001-modularizacao-pipeline-python.md)) para mitigar riscos de acoplamento de código, inconsistências demográficas e viés de validação temporal.
 
-#### O Diferencial Técnico: A Riqueza Clínica (107 Colunas)
-Ao contrário do `info-saude`, que é resumido, a base do `dados-gov` possui todas as variáveis clínicas e laboratoriais da ficha do SINAN:
-*   **Sintomas Clínicos Detalhados:** `FEBRE`, `CEFALEIA`, `EXANTEMA`, `MIALGIA`, `NAUSEAS`, `ARTRALGIA`, `DIARREIA`.
-*   **Sinais de Alarme e Gravidade:** `EPISTAXE` (sangramento nasal), `PETEQUIAS`, `GENGIVO` (gengivorragia), `ASCITE`, `PLEURAL` (derrame pleural), `HIPOTENSAO`, `CHOQUE`.
-*   **Exames Laboratoriais (Preditor de Gravidade Máxima):** `PLAQ_MENOR` (contagem de plaquetas) e `HEMA_MAIOR` (hematócrito) são variáveis de altíssima relevância clínica.
-*   **Marcadores Imunológicos:** `S1_IGM` (sorologia IgM para fase aguda), `S1_IGG` (infecção prévia) e `RESUL_PCR` (confirmação do sorotipo viral DENV1-4).
+```
+┌────────────────────────┐      ┌────────────────────────┐
+│     ETL de Dados       │ ───> │ Engenharia de Features │
+│  (Casos + Clima NASA)  │      │  (Lags + Pop. Hist.)   │
+└────────────────────────┘      └────────────────────────┘
+                                            │
+                                            ▼
+┌────────────────────────┐      ┌────────────────────────┐
+│ Conformal Prediction   │ <─── │   Treinamento e CV     │
+│   (Bandas Dinâmicas)   │      │  (TimeSeriesSplit)     │
+└────────────────────────┘      └────────────────────────┘
+            │
+            ▼
+┌────────────────────────┐
+│  Saídas Versionadas    │
+│  (run_dir + latest/)   │
+└────────────────────────┘
+```
+
+### 3.1 Definição do Alvo (Target)
+Para mitigar inconsistências na notificação de encerramento de casos, o target epidemiológico adotado é a classe **`familia_dengue`**:
+*   *Filtro aplicado*: `i_class_final == 'Caso Provavel' AND i_desc_classificacao IN ['Dengue', 'Dengue com sinais de alarme', 'Dengue grave']`.
+*   *Justificativa*: Remove casos inconclusivos e descartados, preserva a contagem de casos prováveis que clinicamente de fato se enquadram na dengue clássica ou com complicação, aproximando a base local da base federal SINAN.
+
+### 3.2 Denominadores Populacionais Dinâmicos
+*   *Problema*: O uso da população de 2024 para calcular taxas históricas de 2017 a 2023 gerava subestimação sistemática da incidência de anos passados.
+*   *Implementação*: O script `gerar_populacao_historica.py` realiza retroprojeção anual calibrada a partir do Censo 2022.
+*   *Impacto*: O cálculo de `incidencia_100k` é anualmente ajustado, permitindo que os coeficientes do XGBoost e Random Forest interpretem corretamente a densidade de transmissão ao longo do tempo.
+
+### 3.3 Protocolo de Validação Cruzada (Anti-Leakage)
+*   *Divisão Temporal*: Os dados históricos até 2024 são utilizados para treinamento e calibração, reservando o ano de 2025 para validação externa (nowcasting operacional).
+*   *Validação Cruzada*: Aplicação de `TimeSeriesSplit` com **gap de 4 semanas**.
+*   *Motivação*: O gap de 4 semanas simula o atraso médio de inserção de dados no SINAN e impede que lags de casos recentes contaminem as predições de teste com dados da vizinhança imediata.
+
+### 3.4 Quantificação de Incerteza via Conformal Prediction Dinâmico
+*   *Problema*: A análise de resíduos revelou **heteroscedasticidade** (o erro absoluto médio cresce proporcionalmente ao tamanho do surto predito). Um intervalo de confiança estático $\pm 1.96 \sigma$ subestima grosseiramente a incerteza no pico e a superestima na seca.
+*   *Solução*: Escore de não-conformidade normalizado vetorizado:
+    $$\text{score}_i = \frac{|y_i - \hat{y}_i|}{\hat{y}_i + \epsilon}$$
+*   *Aplicação*:
+    $$\text{margem}_t = q_{\text{conf}} \times (\hat{y}_t + \epsilon) \times \sqrt{k}$$
+    Onde $q_{\text{conf}}$ é o quantil calibrado no final da série de treino (últimas 26 semanas), $\epsilon$ é o fator de estabilidade ($0.01$) e $\sqrt{k}$ é o fator de expansão recursiva para o horizonte temporal $k$ semanas à frente.
 
 ---
 
-## 3. Recomendações e Próximos Passos para o seu Projeto no DF
+## 📈 4. Resultados Experimentais Consolidados
 
-Com base no que foi extraído dos artigos e das bases de dados, sugerimos estruturar seu projeto em duas frentes de modelagem:
+### 4.1 Resultados do Estudo de Ablação (Nowcasting 2025)
+A tabela a seguir consolida o desempenho global obtido durante o estudo de ablação de features para predições agregadas do Distrito Federal:
 
-### Cenário A: Modelagem Epidemiológica (Previsão de Surtos e Alocação de Recursos)
-Se o seu objetivo é prever a **quantidade de casos semanais** por Região Administrativa do DF:
-1.  **Dataset Principal:** Utilize o `info-saude` agregado semanalmente por Região Administrativa (`i_desc_radf_res`).
-2.  **Variáveis Climáticas (Crucial):** Você precisará cruzar esses dados com dados de temperatura, umidade e precipitação do DF (disponíveis publicamente no INMET - Estação Brasília).
-3.  **Engenharia de Atributos (Segredo do Desempenho):**
-    *   Não use os dados climáticos do próprio mês. Crie **Lags Temporais** de 2 a 8 semanas (o mosquito leva tempo para nascer e o vírus para incubar).
-    *   Crie **Médias Móveis** de 2 e 3 meses para suavizar as chuvas e destacar tendências gerais.
-4.  **Algoritmo Recomendado:** Comece com **Random Forest** (que se provou o mais estável na literatura brasileira para séries temporais climáticas curtas) com 200 árvores de decisão e, caso tenha uma série temporal longa e contínua de anos, treine uma rede recorrente **LSTM**.
+| Configuração | Modelo | Nº Features | $R^2$ DF | MAE DF | RMSE DF | sMAPE (%) | Hit Rate Picos |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **`lag-only`** | **RF** | 7 | **0.6627** | **10.43** | **13.68** | **22.07%** | 0.6429 |
+| `lag-only` | XGB | 7 | 0.6190 | 11.46 | 14.54 | 23.95% | 0.5000 |
+| `lag+clima` | RF | 32 | 0.6642 | 10.77 | 13.65 | 23.61% | 0.6429 |
+| `lag+clima` | XGB | 32 | 0.5848 | 11.69 | 15.18 | 25.59% | 0.6429 |
+| `lag+clima+RA` | RF | 67 | 0.6618 | 10.68 | 13.70 | 23.19% | 0.8571 |
+| `lag+clima+RA` | XGB | 67 | 0.5824 | 11.69 | 15.22 | 25.29% | 0.6429 |
 
-### Cenário B: Classificação e Triagem Clínica (Predição de Gravidade no Atendimento)
-Se o seu objetivo é criar uma inteligência para apoiar **hospitais no DF a classificar o risco** de um paciente suspeito evoluir para dengue grave:
-1.  **Dataset Principal:** Utilize o `dados-gov` filtrado para o Distrito Federal (`SG_UF == '53'`).
-2.  **Atributos de Entrada:** Use a idade (`NU_IDADE`), sexo (`CS_SEXO`), raça (`CS_RACA`), sintomas básicos (`FEBRE`, `CEFALEIA`, `MIALGIA`) e, principalmente, exames como plaquetas (`PLAQ_MENOR`) e hematócrito (`HEMA_MAIOR`).
-3.  **Algoritmo Recomendado:** **SVM (Support Vector Machines)** com kernel RBF ou um **XGBoost Classifier** para lidar com dados tabulares desbalanceados de sintomas.
+> **Análise Técnica**: A inclusão de dados climáticos e dummies espaciais de RAs (`lag+clima+RA`) aumentou expressivamente a capacidade do Random Forest de prever o tempo exato dos picos (o Hit Rate subiu de $0.64$ para $0.85$). Contudo, pelo critério de parcimônia e aceitação (exigência de ganho de delta $R^2 > 0.05$), a configuração **`lag-only`** vence por simplicidade e robustez.
+
+### 4.2 Desempenho do Modelo Tunado Final
+Após ajuste fino de hiperparâmetros (Grid Search em validação cruzada com TimeSeriesSplit), o modelo final configurado apresentou os seguintes resultados no nowcasting:
+
+*   **Modelo Vencedor**: Random Forest Regressor Tunado (`RF_tunado`).
+*   **Parâmetros**: `n_estimators=500`, `max_features='sqrt'`, `min_samples_leaf=1`.
+*   **Resultados Gerais (DF)**:
+    - $R^2$ Global DF: **$0.6554$**
+    - Erro Absoluto Médio (MAE DF): **$10.64$ casos**
+    - Raiz do Erro Quadrático Médio (RMSE DF): **$13.83$ casos**
+    - Winkler Score (Intervalos a 90%): **$5.84$** (melhoria de $8\%$ sobre o intervalo estático).
+
+---
+
+## 🤝 5. Validação de Consistência das Fontes (SINAN vs info-saude)
+
+Para assegurar a defensabilidade científica do pipeline preditivo perante stakeholders nacionais e permitir futuros desdobramentos para séries hierárquicas integradas (DF $\subset$ Centro-Oeste $\subset$ Brasil), o módulo `report_writer.py` avalia sistematicamente a compatibilidade estatística entre a base local (`info-saude`) e a base federal (`SINAN - DENGBR17`) para o ano comum de 2017.
+
+### 5.1 Criterologia de Aceitação de Splicing
+Para autorizar a mesclagem ou reconciliação hierárquica das fontes de dados, as duas séries agregadas temporalmente para o DF em 2017 precisam satisfazer simultaneamente:
+1.  **Correlação de Pearson ($\rho$)**: $\ge 0.90$ (garante simetria de tendência temporal).
+2.  **Diferença Média Percentual Absoluta (MAPE)**: $\le 15\%$ (garante compatibilidade volumétrica).
+
+### 5.2 Resultados Obtidos no Ambiente
+Caso a base federal esteja ausente, o pipeline executa o monitoramento profilático e aponta a necessidade de reconciliação de códigos clínicos:
+*   *Nota Metodológica*: Identificou-se que na base federal `DENGBR17` da pasta `dados-gov/`, a dengue é classificada majoritariamente sob os códigos `10`, `11` e `12` na coluna `CLASSI_FIN` (diferente da nomenclatura histórica simplificada `[1, 2, 3]`). A não observância dessa diferença conceitual invalida análises comparativas nacionais.
+
+---
+
+## 📌 6. Conclusões e Recomendações
+1.  **Nowcasting**: O pipeline `RF_tunado` sob a configuração de features `lag-only` apresenta estabilidade excelente para nowcasting semanal operacional.
+2.  **Forecast Recursivo (Médio Prazo)**: Projeções fechadas sem inserção de dados reais futuros sofrem com o colapso da incerteza. Para forecast acima de 2 semanas, as bandas de Conformal Prediction ajustadas por $\sqrt{k}$ devem ser utilizadas obrigatoriamente para evitar falsas garantias de precisão.
+3.  **Vigilância Ativa**: Recomenda-se integrar a umidade relativa média defasada em 4 semanas nos relatórios visuais gerados para a tomada de decisão da Secretaria de Saúde do DF.

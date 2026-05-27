@@ -52,14 +52,58 @@ O projeto segue arquitetura modular por domínio, separando lógica de negócio,
 - **Validação cruzada temporal com gap** (`gap=4 semanas`) para evitar data leakage.
 - **Ablação de features** automatizada para identificar o subconjunto ótimo de preditores.
 
-### Features
+### Features & Seleção de Variáveis (Dataset Schema)
 
-| Categoria | Exemplos |
-|---|---|
-| Epidemiológicas | lags semanais de casos (1–12 semanas), médias móveis |
-| Climáticas | temperatura, precipitação e umidade relativa (defasadas) |
-| Temporais | semana epidemiológica, mês, indicadores sazonais |
-| Demográficas | população histórica calibrada pós-Censo 2022 por RA |
+O pipeline de modelagem consome um dataset unificado de **17.185 linhas × 51 colunas**, consolidado na granularidade de **Semana Epidemiológica × Região Administrativa (RA)**. A seleção de variáveis é justificada cientificamente pelas dinâmicas de transmissão vetorial da dengue:
+
+```mermaid
+graph TD
+    subgraph Input_Data [Fontes de Dados de Entrada]
+        Saude[info-saude: Casos por RA]
+        Clima[NASA POWER / Open-Meteo: Clima Diário]
+        Demografia[IBGE / Codeplan: Estimativas Populacionais]
+    end
+
+    subgraph Feature_Engineering [Engenharia de Variáveis]
+        Incidencia[incidencia_100k = cases / populacao * 100k]
+        LagsClima[Lags Climáticos: Lags 2 a 8 de precip_sum, temp_mean, umidmed]
+        LagsCasos[Lags de Casos: cases_lag_1 a 4]
+        Tendencia[Tendência Curto Prazo: delta_1, delta_2, growth_rate]
+        Sazonalidade[Sazonalidade Cíclica: sin/cos de week e month]
+    end
+
+    subgraph Modeling [Pipeline de Modelagem]
+        Train[Random Forest / XGBoost Regressor]
+        CV[Validação Cruzada: TimeSeriesSplit com gap=4 semanas]
+        Conformal[Intervalos Dinâmicos via Conformal Prediction]
+    end
+
+    Saude --> Incidencia
+    Demografia --> Incidencia
+    Clima --> LagsClima
+    Saude --> LagsCasos
+    Saude --> Tendencia
+    Saude --> Sazonalidade
+
+    Incidencia --> Train
+    LagsClima --> Train
+    LagsCasos --> Train
+    Tendencia --> Train
+    Sazonalidade --> Train
+
+    Train --> CV
+    Train --> Conformal
+```
+
+| Categoria | Features Utilizadas | Justificativa Científica e Técnica |
+|---|---|---|
+| **Alvo (Target)** | `cases` / `incidencia_100k` | O modelo é treinado sob escala logarítmica `log1p(target)` para suavizar outliers de picos. A conversão de retorno para a escala real em produção utiliza `expm1`. |
+| **Demográficas** | `populacao` (dinâmica anual) | Em vez de um denominador populacional fixo (2024), utiliza-se a série retroprojetada por RA pós-Censo 2022. Corrige o viés metodológico de subestimação da incidência histórica real. |
+| **Lags Climáticos** | Lags de 2 a 8 semanas de `precip_sum`, `temp_mean`, `umidmed` | O mosquito leva semanas para nascer (chuva/umidade) e o vírus semanas para incubar (temperatura). Variáveis extremas como `temp_max`, `temp_min`, `umidmin` e `umidmax` foram **excluídas** para evitar multicolinearidade e overfitting. |
+| **Lags de Casos** | Lags de 1 a 4 semanas | Captura a inércia e autocorrelação epidemiológica da série de contágio ativa por RA. |
+| **Tendência de Curto Prazo** | `cases_delta_1` (lag 1 - 2), `cases_delta_2` (lag 2 - 3), `cases_growth_rate` | Fornece sinal de aceleração/desaceleração. Essencial para que modelos baseados em árvores (RF/XGB) detectem o início de surtos e evitem subestimação sistemática de picos epidêmicos. |
+| **Sazonalidade Cíclica** | Seno/Cosseno de semana e mês | Codificação trigonométrica contínua anual. Evita descontinuidades numéricas artificiais (como a transição abrupta de dezembro a janeiro). |
+
 
 ### Conformal Prediction Dinâmico
 
