@@ -50,7 +50,12 @@ def busca_ra_canonica() -> dict[str, str]:
     try:
         pop = carregar_historico_populacao()
         lookup = dict(zip(pop["ra_key"], pop["RA"]))
-    except Exception:
+    except Exception as e:
+        import warnings
+        warnings.warn(
+            f"Falha ao carregar populacao_historica.csv em busca_ra_canonica: {e}. Usando fallback estatico.",
+            UserWarning
+        )
         # Fallback estático com nomes normalizados sem acento
         static_ras = [
             "AGUA QUENTE", "ARAPOANGA", "ARNIQUEIRA", "BRAZLANDIA", "CANDANGOLANDIA",

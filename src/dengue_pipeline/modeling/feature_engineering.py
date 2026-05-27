@@ -6,7 +6,7 @@ from dengue_pipeline.shared_kernel import normalizar_ra, carregar_historico_popu
 from dengue_pipeline.etl import ler_info_saude, mascaras_target, carregar_clima
 
 BASE_DIR = Path(__file__).resolve().parents[3]
-CAMINHO_DATASET_PARQUET = BASE_DIR / "dataset_processado.parquet"
+CAMINHO_DATASET_PARQUET = BASE_DIR / "dados_processados" / "dataset_processado.parquet"
 
 def construir_dataset_processado(target_name: str = "familia_dengue") -> pd.DataFrame:
     """
@@ -42,7 +42,7 @@ def construir_dataset_processado(target_name: str = "familia_dengue") -> pd.Data
     
     valid_ras = sorted(list(set(lookup)))
     start = pd.Timestamp("2017-01-01")
-    end = max(cases["epi_sunday"].max(), pd.Timestamp("2026-02-22"))
+    end = max(cases["epi_sunday"].max(), pd.Timestamp.today().normalize())
     all_sundays = pd.date_range(start=start, end=end, freq="W-SUN")
     grid = pd.MultiIndex.from_product([all_sundays, valid_ras], names=["epi_sunday", "RA"]).to_frame(index=False)
     
@@ -54,8 +54,12 @@ def construir_dataset_processado(target_name: str = "familia_dengue") -> pd.Data
     dataset = dataset.merge(pop[["RA", "ano", "populacao"]], on=["RA", "ano"], how="inner")
     dataset["incidencia_100k"] = dataset["cases"] / dataset["populacao"] * 100000
     
-    # Merge com clima
-    climate = carregar_clima()
+    # Merge com clima (otimizado: lags calculados no clima consolidado pré-merge)
+    climate = carregar_clima().sort_values("epi_sunday").reset_index(drop=True)
+    for col in ["precip_sum", "temp_mean", "umidmed"]:
+        for lag in range(2, 9):
+            climate[f"{col}_lag_{lag}"] = climate[col].shift(lag)
+            
     dataset = dataset.merge(climate, on="epi_sunday", how="left")
     dataset = dataset.sort_values(["RA", "epi_sunday"]).reset_index(drop=True)
     
@@ -74,10 +78,8 @@ def construir_dataset_processado(target_name: str = "familia_dengue") -> pd.Data
     # +1 no denominador para evitar divisão por zero em semanas sem casos
     dataset["cases_growth_rate"] = (dataset["cases_lag_1"] + 1) / (dataset["cases_lag_2"] + 1)
             
-    # Engenharia de Lags Climáticos (2 a 8 semanas)
-    for col in ["precip_sum", "temp_mean", "umidmed"]:
-        for lag in range(2, 9):
-            dataset[f"{col}_lag_{lag}"] = dataset.groupby("RA")[col].shift(lag)
+    # Os lags climáticos foram calculados acima de forma otimizada pré-merge
+    # para evitar sobrecarga computacional de groupby e propagação inútil de NaNs.
             
     # Variáveis sazonais cíclicas
     week = dataset["epi_sunday"].dt.isocalendar().week.astype(int)

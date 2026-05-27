@@ -20,6 +20,9 @@ Projeto de modelagem preditiva de **arbovirose da dengue no Distrito Federal (DF
 | [relatorio-final-plano-prompts-opus.md](relatorio-final-plano-prompts-opus.md) | `relatorio`, `ablation`, `modelagem` | Resultado final da execucao P0/P1 do plano revisado |
 | [validacao-sinan-infosaude.md](validacao-sinan-infosaude.md) | `sinan`, `validacao`, `p2` | Validacao de compatibilidade entre SINAN 2017 e info-saude |
 | [plano_refatoracao_modular.md](plano_refatoracao_modular.md) | `refatoração`, `modularidade`, `prompts` | Plano cronológico com prompts de implementação e loops auto-corretivos para refatorar o pipeline |
+| [auditoria-fase1-mapeamento-arquitetural.md](auditoria-fase1-mapeamento-arquitetural.md) | `auditoria`, `arquitetura`, `leakage`, `duplicação`, `pontos-criticos` | Mapeamento completo do fluxo de dados, pontos críticos e gotchas identificados na Fase 1 da auditoria |
+| [auditoria-fase2-fase3-estrutura-qualidade.md](auditoria-fase2-fase3-estrutura-qualidade.md) | `auditoria`, `duplicação`, `qualidade`, `imports-circulares`, `estrutura` | Flattening analysis, common domain detection e coding guidelines das Fases 2 e 3 |
+| [auditoria-fases2-3-estrutura-qualidade.md](auditoria-fases2-3-estrutura-qualidade.md) | `auditoria`, `estrutura`, `qualidade`, `duplicação`, `iterrows`, `design-patterns` | Diagnóstico de duplicações, poluição de diretórios e padrões ineficientes/hardcoded avaliados nas Fases 2 e 3 |
 
 
 ## Contexto Rápido

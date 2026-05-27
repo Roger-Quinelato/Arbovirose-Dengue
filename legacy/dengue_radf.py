@@ -1,3 +1,18 @@
+# -*- coding: utf-8 -*-
+"""
+[DEPRECADO] Este arquivo é parte do pipeline legado e monolítico de dengue.
+Foi movido para a pasta legacy/ para despoluição da raiz do projeto.
+Utilize o novo pipeline modular e robusto rodando:
+    python -m dengue_pipeline
+"""
+
+import warnings
+warnings.warn(
+    "Este script é legado, monolítico e está deprecado. Use o pipeline modular em src/dengue_pipeline.",
+    DeprecationWarning,
+    stacklevel=1
+)
+
 import os
 import glob
 import unicodedata

@@ -5,13 +5,11 @@ import pandas as pd
 from pathlib import Path
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
-from dengue_pipeline.modeling.train_tuning import ajustar_prever_config
-
 BASE_DIR = Path(__file__).resolve().parents[3]
-ABLATION_CSV = BASE_DIR / "resultados_ablation.csv"
-ABLATION_RA_CSV = BASE_DIR / "resultados_ablation_por_ra.csv"
-ABLATION_PRED_CSV = BASE_DIR / "predicoes_ablation.csv"
-WINNER_JSON = BASE_DIR / "resultados_ablation_winner.json"
+ABLATION_CSV = BASE_DIR / "resultados_modelagem" / "resultados_ablation.csv"
+ABLATION_RA_CSV = BASE_DIR / "resultados_modelagem" / "resultados_ablation_por_ra.csv"
+ABLATION_PRED_CSV = BASE_DIR / "resultados_modelagem" / "predicoes_ablation.csv"
+WINNER_JSON = BASE_DIR / "resultados_modelagem" / "resultados_ablation_winner.json"
 
 def r2_seguro(y_true, y_pred) -> float:
     """
@@ -121,6 +119,7 @@ def executar_testes_ablacao(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
         tuple: (df_resultados_ablation, dict_especificacao_vencedora)
     """
     print(">>> P1: executando ablation tests...")
+    from dengue_pipeline.modeling.train_tuning import ajustar_prever_config
     configs = [
         "lag-only",
         "lag+clima",

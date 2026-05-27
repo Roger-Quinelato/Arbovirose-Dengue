@@ -10,7 +10,7 @@ from xgboost import XGBRegressor
 from dengue_pipeline.modeling.feature_engineering import preparar_design, especificacao_features
 
 BASE_DIR = Path(__file__).resolve().parents[3]
-SCRIPTS_DIR = BASE_DIR / "scripts"
+MODELOS_DIR = BASE_DIR / "resultados_modelagem"
 ROLLING_RESULTS_CSV = BASE_DIR / "resultados_modelagem" / "rolling_validation_resultados.csv"
 
 def separar_treino_teste(df: pd.DataFrame, ano_teste: int = 2025) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -211,16 +211,16 @@ def tunar_modelos(df: pd.DataFrame, config: str) -> tuple[pd.DataFrame, pd.DataF
             rows.append({"modelo": model_name, "config": config, "cv_rmse": score, "params": json.dumps(params)})
             
     tuning = pd.DataFrame(rows).sort_values(["modelo", "cv_rmse"])
-    tuning.to_csv(BASE_DIR / "resultados_tuning.csv", index=False)
+    tuning.to_csv(BASE_DIR / "resultados_modelagem" / "resultados_tuning.csv", index=False)
 
     final_pred_rows = []
-    SCRIPTS_DIR.mkdir(exist_ok=True)
+    MODELOS_DIR.mkdir(exist_ok=True)
     for model_name in ["RF", "XGB"]:
         best = tuning[tuning["modelo"].eq(model_name)].iloc[0]
         params = json.loads(best["params"])
         model, pred_df, metrics, _, features = ajustar_prever_config(df, config, model_name, parametros=params)
         
-        out_path = SCRIPTS_DIR / ("modelo_rf_tunado.joblib" if model_name == "RF" else "modelo_xgb_tunado.joblib")
+        out_path = MODELOS_DIR / ("modelo_rf_tunado.joblib" if model_name == "RF" else "modelo_xgb_tunado.joblib")
         dump({"model": model, "config": config, "features": features, "params": params, "metrics": metrics}, out_path)
         
         tmp = pred_df.copy()
@@ -229,7 +229,7 @@ def tunar_modelos(df: pd.DataFrame, config: str) -> tuple[pd.DataFrame, pd.DataF
         final_pred_rows.append(tmp)
 
     final_predictions = pd.concat(final_pred_rows, ignore_index=True)
-    final_predictions.to_csv(BASE_DIR / "predicoes_modelos_finais.csv", index=False)
+    final_predictions.to_csv(BASE_DIR / "resultados_modelagem" / "predicoes_modelos_finais.csv", index=False)
     
     return tuning, final_predictions
 
@@ -252,7 +252,7 @@ def executar_validacao_rolling(df: pd.DataFrame) -> pd.DataFrame:
 
     train, test = separar_treino_teste(df, 2025)
     spec = especificacao_features(config)
-    dummy_columns = pd.get_dummies(df["RA"], prefix="RA", dtype=float).columns.tolist()
+    dummy_columns = pd.get_dummies(train["RA"], prefix="RA", dtype=float).columns.tolist()
     X_train, y_train, train_frame, features, spec = preparar_design(train, config, dummy_columns)
     
     rf = fabrica_modelo("RF")
@@ -263,15 +263,19 @@ def executar_validacao_rolling(df: pd.DataFrame) -> pd.DataFrame:
         for ra, group in train.groupby("RA")
     }
     
+    def obter_lag_cases(ra: str, lag_val: int) -> float:
+        ra_history = history.get(ra, [])
+        if len(ra_history) >= lag_val:
+            return ra_history[-lag_val]
+        return np.nan
+
     recursive_rows = []
     test_sorted = test.sort_values(["epi_sunday", "RA"]).copy()
     for date in sorted(test_sorted["epi_sunday"].unique()):
         rows = test_sorted[test_sorted["epi_sunday"].eq(date)].copy()
         for lag in [1, 2, 3, 4]:
             rows[f"cases_lag_{lag}"] = rows["RA"].map(
-                lambda ra, lag=lag: history.get(ra, [np.nan] * lag)[-lag]
-                if len(history.get(ra, [])) >= lag
-                else np.nan
+                lambda ra, lag_val=lag: obter_lag_cases(ra, lag_val)
             )
         X_rows, _, rows_frame, _, _ = preparar_design(rows, config, dummy_columns)
         if rows_frame.empty:
@@ -326,6 +330,9 @@ def executar_validacao_rolling(df: pd.DataFrame) -> pd.DataFrame:
             pred_now_ci = pred_now.assign(lower_ci=np.nan, upper_ci=np.nan)
             pred_closed_ci = pred_closed.assign(lower_ci=np.nan, upper_ci=np.nan)
     except Exception as e:
+        import traceback
+        import warnings
+        warnings.warn(f"Conformal prediction falhou: {e}\n{traceback.format_exc()}")
         print(f"  [AVISO] Conformal prediction falhou: {e}. Salvando sem intervalos de confiança.")
         pred_now_ci = pred_now.assign(lower_ci=np.nan, upper_ci=np.nan)
         pred_closed_ci = pred_closed.assign(lower_ci=np.nan, upper_ci=np.nan)
