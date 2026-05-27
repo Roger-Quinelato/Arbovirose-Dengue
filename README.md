@@ -46,11 +46,32 @@ O projeto segue arquitetura modular por domínio, separando lógica de negócio,
 
 ## 🧠 Abordagem Técnica
 
-### Modelos
+### Modelos & Execução de Treinamento
 
-- **Random Forest** e **XGBoost** treinados por série temporal de cada RA.
-- **Validação cruzada temporal com gap** (`gap=4 semanas`) para evitar data leakage.
-- **Ablação de features** automatizada para identificar o subconjunto ótimo de preditores.
+O pipeline preditivo executa uma busca robusta por modelagem, acionando um total de **22 execuções de treinamento (`.fit()`)** a cada rodada completa para avaliar diferentes algoritmos e hiperparâmetros de forma segura. Esse processo é dividido em três fases:
+
+1. **Ablação (8 Treinos)**: Teste cruzado de 4 configurações de features $\times$ 2 algoritmos.
+2. **Validação Temporal (2 Treinos)**: Testes simulados de Nowcasting e Forecast Recursivo em Janela Móvel.
+3. **Busca Fina em Grade (12 Treinos)**: Grid Search sob validação cruzada (`TimeSeriesSplit` de 5 folds com exclusão de gap de 4 semanas) e ajuste final pré-produção dos modelos.
+
+Para detalhes completos sobre a parametrização e mapeamento destas combinações computacionais, consulte a especificação em:
+👉 **[Parâmetros e Combinações de Treinamento (.notebook/parametros-e-combinacoes.md)](.notebook/parametros-e-combinacoes.md)**
+
+#### 🏆 Resultados e Melhor Modelo (Campeão do Nowcasting)
+
+Após o estresse experimental e otimização por Grid Search na série histórica de validação (nowcasting operacional), os resultados obtidos foram:
+
+*   **Modelo Campeão**: **`Random Forest Regressor Tunado`** (`RF_tunado`).
+*   **Melhor Configuração**: **`lag-only`** (7 features autoregressivas básicas).
+*   **Hiperparâmetros Ótimos**: `n_estimators=500`, `max_features='sqrt'`, `min_samples_leaf=1`, `max_depth=None`.
+*   **Justificativa Científica**: Nenhuma configuração complexa (clima/RA) superou o baseline com delta $R^2 > 0.05$. O Random Forest de postos provou ser o mais robusto contra overfitting de alta dimensionalidade em resoluções geográficas finas.
+*   **Métricas de Desempenho (Scores Finais e Menores Erros)**:
+    *   **$R^2$ Global Distrito Federal**: **`0.6554`** (Mede a explicabilidade da variância do surto no DF).
+    *   **Erro Absoluto Médio (MAE DF)**: **`10.64 casos`** (Menor desvio médio semanal obtido).
+    *   **Raiz do Erro Quadrático Médio (RMSE DF)**: **`13.83 casos`** (Alta robustez contra desvios extremos).
+    *   **Erro Percentual Simétrico Médio (sMAPE DF)**: **`22.39%`** (Erro normalizado estável para períodos de baixa endemia).
+    *   **Winkler Score (Intervalo Conformal a 90%)**: **`5.84`** (Melhoria de 8% de assertividade empírica de incerteza).
+
 
 ### Features & Seleção de Variáveis (Dataset Schema)
 
@@ -199,6 +220,7 @@ A pasta `.notebook/` contém a inteligência acumulada do projeto em documentos 
 | `literatura-algoritmos.md` | Literatura | Síntese dos artigos de referência |
 | `historico-evolucao-projeto.md` | Notas | Consolidado histórico do progresso dos modelos, métricas e evolução do DocML |
 | `fundamentacao-matematica.md` | Notas | Raciocínio matemático rigoroso, equações de Conformal Prediction e métricas |
+| `parametros-e-combinacoes.md` | Notas | Detalhamento de parâmetros por modelo e contagem de combinações computacionais do pipeline |
 
 ---
 
