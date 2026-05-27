@@ -123,6 +123,22 @@ margin  = q_conf × (ŷ + ε) × √k          ← aplicação (k = horizonte)
 
 ---
 
+## 🔬 Referências Científicas & Justificativas (Artigos Utilizados)
+
+O desenvolvimento deste pipeline preditivo foi guiado por literatura científica de referência (arquivada na pasta `artigos/`). A tabela abaixo descreve quais artigos foram utilizados, como foram aplicados no design do projeto e as razões de sua escolha:
+
+| Artigo Científico / Arquivo | Como foi Utilizado no Projeto | Razão / Justificativa Científica |
+| :--- | :--- | :--- |
+| **Marcelo da Costa (Tese Sobral-CE, 2025)**<br>*MLeDengueCeará.pdf* | Modelagem preditiva baseada em **Random Forest** enriquecido com engenharia de features climatológicas. | Demonstrou que regressores tradicionais de ML sem lags e médias móveis falham ($R^2 < 0.0$), mas alcançam alta performance ($R^2 \approx 0.80$) quando combinados com lags ecológicos de precipitação e temperatura. |
+| **Cabrera et al. (Revisão América Latina, 2022)**<br>*MLeDengueNaAmericaLatina.pdf* | Modelagem da incerteza epidemiológica, escolha de lags de 2 a 8 semanas climáticos e tendências autoregressivas. | Demonstrou que lags climáticos de 2 a 8 semanas capturam o tempo biológico de maturação do mosquito e reprodução viral, sendo obrigatórios para mitigar distorções e nowcasting estável. |
+| **Andrade Girón et al. (Informatics, 2025)**<br>*informatics-12-00015.pdf* | Análise de robustez de modelos baseados em árvores e sintomas clínicos autoregressivos para o nowcasting semanal. | Revisão sistemática sobre o desempenho de ML no diagnóstico e previsão da dengue, validando a robustez do Random Forest e do XGBoost. |
+| **Barbosa et al. (SISAMOB, 2023)**<br>*Sisamob Barbosa et al 2023.pdf* | Modelagem geográfica e espacial das Regiões Administrativas do DF. | Explica a importância de capturar micro-dinâmicas de mobilidade urbana (*commuting*) que influenciam a propagação espacial de dengue entre as RAs do DF. |
+
+Para uma análise matemática detalhada de cada fórmula, transformação de cauda, dinâmica de conformal prediction e métricas rigorosas, consulte o documento completo em:
+👉 **[Fundamentação Matemática e Modelagem Estatística (.notebook/fundamentacao-matematica.md)](.notebook/fundamentacao-matematica.md)**
+
+---
+
 ## 🚀 Como Começar
 
 ### 1. Configurar o ambiente virtual
@@ -174,10 +190,15 @@ A pasta `.notebook/` contém a inteligência acumulada do projeto em documentos 
 | `INDEX.md` | Índice | Mapa de todas as notas do projeto |
 | `bases-de-dados.md` | Referência | Estrutura das bases epidemiológicas |
 | `pipeline-radf.md` | Referência | Fluxo completo do pipeline e features |
+| `adr-001-modularizacao-pipeline-python.md` | ADR | Decisão de migrar do pipeline monolítico para um pacote modular |
 | `adr-002-uso-populacao-historica.md` | ADR | Decisão de usar população demográfica calibrada |
+| `adr-003-conformal-prediction-dinamico.md` | ADR | Decisão de usar Conformal Prediction dinâmico para bandas de incerteza |
+| `adr-004-versionamento-runs-timestamp.md` | ADR | Decisão de versionar execuções do pipeline com run_id e latest/ |
 | `rfc-002-pipeline-dados-modelagem.md` | RFC | Proposta de pipeline estruturado interativo |
 | `tdd-notebook-limpeza-modelagem.md` | TDD | Especificação técnica de limpeza e modelagem |
 | `literatura-algoritmos.md` | Literatura | Síntese dos artigos de referência |
+| `historico-evolucao-projeto.md` | Notas | Consolidado histórico do progresso dos modelos, métricas e evolução do DocML |
+| `fundamentacao-matematica.md` | Notas | Raciocínio matemático rigoroso, equações de Conformal Prediction e métricas |
 
 ---
 
@@ -209,4 +230,11 @@ Veja a lista completa em [`requirements.txt`](requirements.txt).
 
 ## 📄 Licença
 
-Este projeto está licenciado sob a licença MIT. Veja o arquivo [`LICENSE`](LICENSE) para mais detalhes.
+Este projeto está licensed sob a licença MIT. Veja o arquivo [`LICENSE`](LICENSE) para mais detalhes.
+
+---
+
+## ✉️ Contato
+
+Desenvolvido e mantido por:
+- **Roger Quinelato** — [rogerdiasquinelato@gmail.com](mailto:rogerdiasquinelato@gmail.com)

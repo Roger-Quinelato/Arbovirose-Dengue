@@ -28,6 +28,8 @@ Projeto de modelagem preditiva de **arbovirose da dengue no Distrito Federal (DF
 | [stress_test_pre_mortem.md](stress_test_pre_mortem.md) | `estresse`, `devil-advocate`, `pre-mortem`, `avaliação` | Auditoria de estresse profunda e análise pre-mortem sob a postura de revisor cético |
 | [relatorio_seguranca_data_leakage.md](relatorio_seguranca_data_leakage.md) | `segurança`, `data-leakage`, `data-leak`, `vulnerabilidades` | Relatório detalhado das vulnerabilidades de segurança e diagnóstico do "leaky" do repositório |
 | [historico-evolucao-projeto.md](historico-evolucao-projeto.md) | `histórico`, `resultados`, `evolução` | Consolidado histórico do progresso dos modelos, métricas e justificativa de mudanças do DocML |
+| [fundamentacao-matematica.md](fundamentacao-matematica.md) | `matemática`, `fórmulas`, `conformal-prediction`, `métricas` | Raciocínio matemático rigoroso, equações de conformal prediction e justificativas de métricas no DocML |
+
 
 ## Contexto Rápido
 
