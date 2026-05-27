@@ -104,19 +104,25 @@ def aplicar_limites_confianca(
     return df
 
 
-def salvar_calibracao(calibracao: dict) -> None:
+def salvar_calibracao(calibracao: dict, run_dir: Path | None = None) -> None:
     """Persiste os parâmetros de calibração conformal em JSON para uso operacional."""
     import json
+    if run_dir is not None:
+        out_path = run_dir / "conformal_calibration.json"
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(calibracao, f, indent=2, ensure_ascii=False)
+    # Também salva no caminho legado fixo
     CONFORMAL_CALIBRATION_JSON.parent.mkdir(exist_ok=True)
     with open(CONFORMAL_CALIBRATION_JSON, "w", encoding="utf-8") as f:
         json.dump(calibracao, f, indent=2, ensure_ascii=False)
 
 
-def carregar_calibracao() -> dict | None:
+def carregar_calibracao(run_dir: Path | None = None) -> dict | None:
     """Carrega os parâmetros de calibração conformal salvos previamente. Retorna None se ausentes."""
     import json
-    if not CONFORMAL_CALIBRATION_JSON.exists():
+    path = run_dir / "conformal_calibration.json" if run_dir else CONFORMAL_CALIBRATION_JSON
+    if not path.exists():
         return None
-    with open(CONFORMAL_CALIBRATION_JSON, encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         data = json.load(f)
     return data

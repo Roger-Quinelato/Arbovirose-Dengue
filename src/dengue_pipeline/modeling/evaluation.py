@@ -106,7 +106,7 @@ def consolidar_metricas_performance(pred_df: pd.DataFrame) -> tuple[dict, pd.Dat
     metrics["rmse_media_ras"] = float(ra_df["rmse_ra"].mean(skipna=True))
     return metrics, ra_df
 
-def executar_estudo_ablacao(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+def executar_estudo_ablacao(df: pd.DataFrame, run_dir: Path | None = None) -> tuple[pd.DataFrame, dict]:
     """
     Executa testes de ablação sistemáticos variando a complexidade das features
     (lag-only, lag+clima, lag+clima+RA, lag+clima+RA+incid-target) e algoritmos (RF, XGB).
@@ -114,6 +114,7 @@ def executar_estudo_ablacao(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     
     Parâmetros:
         df (pd.DataFrame): Dataset completo de entrada.
+        run_dir (Path, opcional): Subdiretório versionado para salvar resultados desta execução.
         
     Retorna:
         tuple: (df_resultados_ablation, dict_especificacao_vencedora)
@@ -213,9 +214,25 @@ def executar_estudo_ablacao(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
         "reason": winner_reason,
     }
 
-    result.to_csv(ABLATION_CSV, index=False)
-    ra_result.to_csv(ABLATION_RA_CSV, index=False)
-    pred_result.to_csv(ABLATION_PRED_CSV, index=False)
-    WINNER_JSON.write_text(json.dumps(winner, indent=2, ensure_ascii=False), encoding="utf-8")
+    out_ablation_csv = run_dir / "resultados_ablacao_nowcasting.csv" if run_dir else ABLATION_CSV
+    out_ablation_ra_csv = run_dir / "resultados_ablation_por_ra.csv" if run_dir else ABLATION_RA_CSV
+    out_ablation_pred_csv = run_dir / "predicoes_ablation.csv" if run_dir else ABLATION_PRED_CSV
+    out_winner_json = run_dir / "campeao_ablacao_nowcasting.json" if run_dir else WINNER_JSON
+
+    result.to_csv(out_ablation_csv, index=False)
+    if run_dir:
+        result.to_csv(ABLATION_CSV, index=False)
+
+    ra_result.to_csv(out_ablation_ra_csv, index=False)
+    if run_dir:
+        ra_result.to_csv(ABLATION_RA_CSV, index=False)
+
+    pred_result.to_csv(out_ablation_pred_csv, index=False)
+    if run_dir:
+        pred_result.to_csv(ABLATION_PRED_CSV, index=False)
+
+    out_winner_json.write_text(json.dumps(winner, indent=2, ensure_ascii=False), encoding="utf-8")
+    if run_dir:
+        WINNER_JSON.write_text(json.dumps(winner, indent=2, ensure_ascii=False), encoding="utf-8")
     
     return result, winner

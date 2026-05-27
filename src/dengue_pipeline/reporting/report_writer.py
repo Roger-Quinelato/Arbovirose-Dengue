@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from pathlib import Path
+import shutil
 
 # Configurar matplotlib para modo não-interativo antes de carregar pyplot
 matplotlib.use("Agg")
@@ -47,7 +48,7 @@ def formatar_tabela_markdown(df: pd.DataFrame) -> str:
         rows.append("| " + " | ".join(values) + " |")
     return "\n".join([header, separator] + rows)
 
-def analisar_alvo_epidemiologico() -> tuple[pd.DataFrame, dict]:
+def analisar_alvo_epidemiologico(run_dir: Path | None = None) -> tuple[pd.DataFrame, dict]:
     """
     Executa a análise de definição do target epidemiológico para a modelagem.
     Avalia a frequência e proporções das classificações e tipos de dengue e plota gráficos comparativos.
@@ -58,55 +59,35 @@ def analisar_alvo_epidemiologico() -> tuple[pd.DataFrame, dict]:
     print(">>> P0/P1: formalizando target epidemiologico...")
     df = ingestar_dados_saude_local()
     masks = mascaras_target(df)
-
-    class_counts = df["i_class_final"].value_counts(dropna=False).rename_axis("valor").reset_index(name="n")
-    disease_counts = (
-        df["i_desc_classificacao"].value_counts(dropna=False).rename_axis("valor").reset_index(name="n")
-    )
-    combo_counts = (
-        df.groupby(["i_class_final", "i_desc_classificacao"], dropna=False)
-        .size()
-        .reset_index(name="n")
-        .sort_values("n", ascending=False)
-        .head(20)
-    )
-
-    provavel = masks["simples_caso_provavel"]
+    
+    class_counts = df["i_class_final"].value_counts(dropna=False).rename_axis("classificacao_final").reset_index(name="casos")
+    disease_counts = df["i_desc_classificacao"].value_counts(dropna=False).rename_axis("classificacao_doenca").reset_index(name="casos")
+    combo_counts = df.groupby(["i_class_final", "i_desc_classificacao"]).size().reset_index(name="casos").sort_values("casos", ascending=False).head(20)
+    
     provavel_counts = {
-        "provavel_total": int(provavel.sum()),
-        "provavel_dengue_exata": int((provavel & df["disease_norm"].eq("DENGUE")).sum()),
-        "provavel_familia_dengue": int((provavel & df["disease_norm"].isin(FAMILIA_DENGUE)).sum()),
-        "provavel_inconclusivo": int((provavel & df["disease_norm"].eq("INCONCLUSIVO")).sum()),
-        "provavel_nao_informado": int((provavel & df["disease_norm"].eq("NAO INFORMADO")).sum()),
+        "total_provavel": int(masks["simples_caso_provavel"].sum()),
+        "dengue_exata": int(masks["duplo_dengue_exata"].sum()),
+        "familia_dengue": int(masks["familia_dengue"].sum()),
     }
-
-    annual_rows = []
-    for year, year_df in df.dropna(subset=["ano"]).groupby("ano"):
-        year_masks = mascaras_target(year_df)
-        annual_rows.append(
-            {
-                "ano": int(year),
-                "filtro_simples": int(year_masks["simples_caso_provavel"].sum()),
-                "filtro_duplo_dengue_exata": int(year_masks["duplo_dengue_exata"].sum()),
-                "filtro_familia_dengue": int(year_masks["familia_dengue"].sum()),
-            }
-        )
-    annual = pd.DataFrame(annual_rows).sort_values("ano")
-
-    weekly = []
+    
+    # 3. Análise Anual comparativa dos filtros
+    annual = df.groupby(df["date"].dt.year).agg(
+        total_casos=("class_norm", "count"),
+        provavel=("class_norm", lambda s: s.eq("CASO PROVAVEL").sum()),
+        dengue_exata=("disease_norm", lambda s: (s.eq("DENGUE") & df.loc[s.index, "class_norm"].eq("CASO PROVAVEL")).sum()),
+        familia_dengue=("disease_norm", lambda s: (s.isin(FAMILIA_DENGUE) & df.loc[s.index, "class_norm"].eq("CASO PROVAVEL")).sum()),
+    ).reset_index().rename(columns={"date": "ano"})
+    
+    # 4. Plotagem comparativa
+    weekly_all = []
     for name, mask in masks.items():
-        w = (
-            df.loc[mask & df["epi_sunday"].notna()]
-            .groupby("epi_sunday")
-            .size()
-            .reset_index(name="casos")
-        )
+        w = df[mask].groupby("epi_sunday").size().reset_index(name="casos")
         w["target"] = name
-        weekly.append(w)
-    weekly_all = pd.concat(weekly, ignore_index=True)
-
-    OUTPUT_DIR.mkdir(exist_ok=True)
-    fig, axes = plt.subplots(1, 2, figsize=(16, 5.5), sharey=True)
+        weekly_all.append(w)
+    weekly_all = pd.concat(weekly_all, ignore_index=True)
+    weekly_all["epi_sunday"] = pd.to_datetime(weekly_all["epi_sunday"])
+    
+    fig, axes = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
     simple_w = weekly_all[weekly_all["target"] == "simples_caso_provavel"]
     exact_w = weekly_all[weekly_all["target"] == "duplo_dengue_exata"]
     family_w = weekly_all[weekly_all["target"] == "familia_dengue"]
@@ -129,6 +110,9 @@ def analisar_alvo_epidemiologico() -> tuple[pd.DataFrame, dict]:
     plt.tight_layout()
     plt.savefig(OUTPUT_DIR / "target_comparativo.png", dpi=220)
     plt.close()
+    if run_dir is not None:
+        import shutil
+        shutil.copy2(OUTPUT_DIR / "target_comparativo.png", run_dir / "target_comparativo.png")
 
     summary = {
         "class_counts": class_counts.to_dict(orient="records"),
@@ -162,9 +146,16 @@ def analisar_alvo_epidemiologico() -> tuple[pd.DataFrame, dict]:
         encoding="utf-8",
     )
     
+    if run_dir is not None:
+        class_counts.to_csv(run_dir / "target_class_final_counts.csv", index=False)
+        disease_counts.to_csv(run_dir / "target_desc_classificacao_counts.csv", index=False)
+        combo_counts.to_csv(run_dir / "target_combinacoes_top20.csv", index=False)
+        annual.to_csv(run_dir / "target_formalizacao_resumo.csv", index=False)
+        shutil.copy2(NOTEBOOK_DIR / "target-formalizacao.md", run_dir / "target-formalizacao.md")
+    
     return annual, summary
 
-def gerar_visualizacoes_eda(dataset: pd.DataFrame) -> None:
+def gerar_visualizacoes_eda(dataset: pd.DataFrame, run_dir: Path | None = None) -> None:
     """
     Gera gráficos de Análise Exploratória de Dados (EDA) e salva-os em resultados_graficos/.
     Gera curvas comparativas (Ceilândia vs Lago Sul), mapa de calor semanal e barras do Top 10 RAs.
@@ -174,6 +165,7 @@ def gerar_visualizacoes_eda(dataset: pd.DataFrame) -> None:
     """
     print(">>> P1: gerando graficos de EDA...")
     OUTPUT_DIR.mkdir(exist_ok=True)
+    import shutil
     
     ceilandia = dataset[dataset["RA"].map(sanitizar_texto).eq("CEILANDIA")]
     lago_sul = dataset[dataset["RA"].map(sanitizar_texto).eq("LAGO SUL")]
@@ -191,12 +183,16 @@ def gerar_visualizacoes_eda(dataset: pd.DataFrame) -> None:
     plt.tight_layout()
     plt.savefig(OUTPUT_DIR / "populacao_cases_incidencia.png", dpi=220)
     plt.close()
-
+    if run_dir is not None:
+        shutil.copy2(OUTPUT_DIR / "populacao_cases_incidencia.png", run_dir / "populacao_cases_incidencia.png")
+ 
     # 2. Correlação Spearman Lags Climáticos
     lag_cols = [c for c in dataset.columns if c.startswith(("precip_sum_lag_", "temp_mean_lag_", "umidmed_lag_"))]
     corr = dataset[lag_cols + ["incidencia_100k"]].corr(method="spearman")["incidencia_100k"].drop("incidencia_100k")
     corr_df = corr.rename("spearman").reset_index().rename(columns={"index": "feature"})
     corr_df.to_csv(BASE_DIR / "dados_processados" / "correlacao_lags_clima.csv", index=False)
+    if run_dir is not None:
+        corr_df.to_csv(run_dir / "correlacao_lags_clima.csv", index=False)
     
     heat = corr_df.assign(
         variable=corr_df["feature"].str.replace(r"_lag_\d+$", "", regex=True),
@@ -212,7 +208,9 @@ def gerar_visualizacoes_eda(dataset: pd.DataFrame) -> None:
     plt.tight_layout()
     plt.savefig(OUTPUT_DIR / "correlacao_lags_clima.png", dpi=220)
     plt.close()
-
+    if run_dir is not None:
+        shutil.copy2(OUTPUT_DIR / "correlacao_lags_clima.png", run_dir / "correlacao_lags_clima.png")
+ 
     # 3. Série Temporal DF Total
     df_total = dataset.groupby("epi_sunday")["cases"].sum().reset_index()
     peak = df_total.loc[df_total["cases"].idxmax()]
@@ -230,7 +228,9 @@ def gerar_visualizacoes_eda(dataset: pd.DataFrame) -> None:
     plt.tight_layout()
     plt.savefig(OUTPUT_DIR / "serie_df_total_qualidade.png", dpi=220)
     plt.close()
-
+    if run_dir is not None:
+        shutil.copy2(OUTPUT_DIR / "serie_df_total_qualidade.png", run_dir / "serie_df_total_qualidade.png")
+ 
     # 4. Heatmap RA vs Semana
     pivot = dataset.pivot_table(index="RA", columns="epi_sunday", values="cases", aggfunc="sum").fillna(0)
     norm = pivot.div(pivot.max(axis=1).replace(0, np.nan), axis=0).fillna(0)
@@ -242,7 +242,9 @@ def gerar_visualizacoes_eda(dataset: pd.DataFrame) -> None:
     plt.tight_layout()
     plt.savefig(OUTPUT_DIR / "heatmap_ra_semana.png", dpi=220)
     plt.close()
-
+    if run_dir is not None:
+        shutil.copy2(OUTPUT_DIR / "heatmap_ra_semana.png", run_dir / "heatmap_ra_semana.png")
+ 
     # 5. Top 10 RAs por Volume de Casos
     top10 = dataset.groupby("RA")["cases"].sum().sort_values(ascending=True).tail(10)
     plt.figure(figsize=(10, 6))
@@ -252,8 +254,10 @@ def gerar_visualizacoes_eda(dataset: pd.DataFrame) -> None:
     plt.tight_layout()
     plt.savefig(OUTPUT_DIR / "top10_ra_volume.png", dpi=220)
     plt.close()
+    if run_dir is not None:
+        shutil.copy2(OUTPUT_DIR / "top10_ra_volume.png", run_dir / "top10_ra_volume.png")
 
-def gerar_graficos_ablacao(result: pd.DataFrame) -> None:
+def gerar_graficos_ablacao(result: pd.DataFrame, run_dir: Path | None = None) -> None:
     """
     Gera gráficos comparativos para a análise de ablação de features.
     
@@ -261,6 +265,7 @@ def gerar_graficos_ablacao(result: pd.DataFrame) -> None:
         result (pd.DataFrame): DataFrame de resultados consolidado dos testes de ablação.
     """
     OUTPUT_DIR.mkdir(exist_ok=True)
+    import shutil
     
     fig, ax = plt.subplots(figsize=(10, 5.5))
     plot_df = result.sort_values(["config", "modelo"]).copy()
@@ -274,7 +279,9 @@ def gerar_graficos_ablacao(result: pd.DataFrame) -> None:
     plt.tight_layout()
     plt.savefig(OUTPUT_DIR / "ablation_comparativo.png", dpi=220)
     plt.close()
-
+    if run_dir is not None:
+        shutil.copy2(OUTPUT_DIR / "ablation_comparativo.png", run_dir / "ablation_comparativo.png")
+ 
     baseline = result[result["config"].eq("lag-only")]["r2_df"].max()
     fig, ax = plt.subplots(figsize=(10, 5.5))
     ax.barh(labels, plot_df["r2_df"], color=colors)
@@ -287,8 +294,10 @@ def gerar_graficos_ablacao(result: pd.DataFrame) -> None:
     plt.tight_layout()
     plt.savefig(OUTPUT_DIR / "ablation_contribuicao.png", dpi=220)
     plt.close()
+    if run_dir is not None:
+        shutil.copy2(OUTPUT_DIR / "ablation_contribuicao.png", run_dir / "ablation_contribuicao.png")
 
-def gerar_painel_final(df: pd.DataFrame, winner: dict, final_predictions: pd.DataFrame) -> None:
+def gerar_painel_final(df: pd.DataFrame, winner: dict, final_predictions: pd.DataFrame, run_dir: Path | None = None) -> None:
     """
     Gera visualizações finais do pipeline (Real vs Previsto global e por RAs principais)
     e redige o arquivo markdown do relatório final com os resultados.
@@ -297,14 +306,20 @@ def gerar_painel_final(df: pd.DataFrame, winner: dict, final_predictions: pd.Dat
         df (pd.DataFrame): Dataset original processado.
         winner (dict): Dicionário contendo os dados da especificação de features vencedora.
         final_predictions (pd.DataFrame): Previsões finais tunadas dos modelos.
+        run_dir (Path, opcional): Subdiretório versionado para salvar resultados desta execução.
     """
     print(">>> P1: gerando visualizacoes finais e relatorio...")
     OUTPUT_DIR.mkdir(exist_ok=True)
     NOTEBOOK_DIR.mkdir(exist_ok=True)
+    import shutil
     
-    ablation_pred = pd.read_csv(ABLATION_PRED_CSV, parse_dates=["epi_sunday"])
+    ablation_pred_csv = run_dir / "predicoes_ablation.csv" if run_dir else ABLATION_PRED_CSV
+    ablation_csv = run_dir / "resultados_ablacao_nowcasting.csv" if run_dir else ABLATION_CSV
+    ablation_ra_csv = run_dir / "resultados_ablation_por_ra.csv" if run_dir else ABLATION_RA_CSV
+    
+    ablation_pred = pd.read_csv(ablation_pred_csv, parse_dates=["epi_sunday"])
     baseline_model = (
-        pd.read_csv(ABLATION_CSV)
+        pd.read_csv(ablation_csv)
         .query("config == 'lag-only'")
         .sort_values("r2_df", ascending=False)
         .iloc[0]["modelo"]
@@ -319,7 +334,7 @@ def gerar_painel_final(df: pd.DataFrame, winner: dict, final_predictions: pd.Dat
     pred_winner = ablation_pred[
         ablation_pred["config"].eq(config_winner) & ablation_pred["modelo"].eq(model_winner)
     ]
-
+ 
     actual_total = df.groupby("epi_sunday", as_index=False)["cases"].sum()
     base_total = pred_baseline.groupby("epi_sunday", as_index=False)["prediction"].sum()
     win_total = pred_winner.groupby("epi_sunday", as_index=False)["prediction"].sum()
@@ -341,7 +356,9 @@ def gerar_painel_final(df: pd.DataFrame, winner: dict, final_predictions: pd.Dat
     plt.tight_layout()
     plt.savefig(OUTPUT_DIR / "serie_df_total.png", dpi=220)
     plt.close()
-
+    if run_dir is not None:
+        shutil.copy2(OUTPUT_DIR / "serie_df_total.png", run_dir / "serie_df_total.png")
+ 
     # 2. Séries dos Top 6 RAs
     top6 = pred_winner.groupby("RA")["cases"].sum().nlargest(6).index.tolist()
     fig, axes = plt.subplots(2, 3, figsize=(16, 9), sharex=True)
@@ -356,7 +373,9 @@ def gerar_painel_final(df: pd.DataFrame, winner: dict, final_predictions: pd.Dat
     plt.tight_layout()
     plt.savefig(OUTPUT_DIR / "series_top6_ra.png", dpi=220)
     plt.close()
-
+    if run_dir is not None:
+        shutil.copy2(OUTPUT_DIR / "series_top6_ra.png", run_dir / "series_top6_ra.png")
+ 
     # 3. Incidência média por RA em 2025
     incidence = (
         df[(df["epi_sunday"] >= "2025-01-01") & (df["epi_sunday"] < "2026-01-01")]
@@ -371,10 +390,12 @@ def gerar_painel_final(df: pd.DataFrame, winner: dict, final_predictions: pd.Dat
     plt.tight_layout()
     plt.savefig(OUTPUT_DIR / "incidencia_por_ra_2025.png", dpi=220)
     plt.close()
+    if run_dir is not None:
+        shutil.copy2(OUTPUT_DIR / "incidencia_por_ra_2025.png", run_dir / "incidencia_por_ra_2025.png")
 
     # 4. Compilar relatório de métricas e ablação em formato Markdown
-    ablation = pd.read_csv(ABLATION_CSV)
-    ra_metrics = pd.read_csv(ABLATION_RA_CSV)
+    ablation = pd.read_csv(ablation_csv)
+    ra_metrics = pd.read_csv(ablation_ra_csv)
     winner_ra = ra_metrics[
         ra_metrics["config"].eq(config_winner) & ra_metrics["modelo"].eq(model_winner)
     ].sort_values("rmse_ra", ascending=False)
@@ -385,7 +406,11 @@ def gerar_painel_final(df: pd.DataFrame, winner: dict, final_predictions: pd.Dat
         metrics, _ = consolidar_metricas_performance(group)
         final_metrics.append({"modelo": group["modelo"].iloc[0], **metrics})
     final_metrics_df = pd.DataFrame(final_metrics)
-    final_metrics_df.to_csv(BASE_DIR / "resultados_modelagem" / "metricas_modelos_finais.csv", index=False)
+    
+    metrics_csv_path = run_dir / "metricas_modelos_finais.csv" if run_dir else (BASE_DIR / "resultados_modelagem" / "metricas_modelos_finais.csv")
+    final_metrics_df.to_csv(metrics_csv_path, index=False)
+    if run_dir:
+        final_metrics_df.to_csv(BASE_DIR / "resultados_modelagem" / "metricas_modelos_finais.csv", index=False)
 
     report = [
         "# Relatorio final - Execucao do Pipeline",
@@ -400,7 +425,7 @@ def gerar_painel_final(df: pd.DataFrame, winner: dict, final_predictions: pd.Dat
         "## Respostas da Avaliacao de Data Science",
         "",
         "1. A config que agregou valor real demonstravel foi considerada apenas se superou "
-        "lag-only por delta R2 > 0.05 ou RMSE melhor em >70% das RAs.",
+        "lag-only por delta R2 > 0.05 ou RMSE melhor in >70% das RAs.",
         f"2. Resultado: {winner['reason']}",
         f"3. RA com maior RMSE na config vencedora: `{worst_ra['RA']}` (RMSE={worst_ra['rmse_ra']:.3f}). "
         "Hipotese: RAs com picos localizados e baixa base semanal sao mais dificeis para modelos globais.",
@@ -419,6 +444,8 @@ def gerar_painel_final(df: pd.DataFrame, winner: dict, final_predictions: pd.Dat
         "",
     ]
     FINAL_REPORT_MD.write_text("\n".join(report), encoding="utf-8")
+    if run_dir is not None:
+        shutil.copy2(FINAL_REPORT_MD, run_dir / "relatorio_final_execucao.md")
 
 def normalizar_sg_uf(series: pd.Series) -> pd.Series:
     """
@@ -435,7 +462,8 @@ def normalizar_sg_uf(series: pd.Series) -> pd.Series:
     text = series.astype(str).str.upper().str.strip()
     return numeric.eq(53) | text.eq("DF")
 
-def validar_consistencia_fontes(target_name: str = "familia_dengue") -> dict:
+def validar_consistencia_fontes(target_name: str = "familia_dengue", run_dir: Path | None = None) -> dict:
+    import shutil
     """
     Valida a consistência de contagens entre a base federal do SINAN (DENGBR17) e a distrital do info-saude
     para o ano de 2017. Avalia métricas de correlação e erro percentual para decidir aceitação.
@@ -456,6 +484,8 @@ def validar_consistencia_fontes(target_name: str = "familia_dengue") -> dict:
             "A validação foi pulada porque o arquivo federal do SINAN (`dados-gov/DENGBR17.csv`) não está presente neste ambiente.",
         ]
         SINAN_REPORT_MD.write_text("\n".join(report), encoding="utf-8")
+        if run_dir is not None:
+            shutil.copy2(SINAN_REPORT_MD, run_dir / "validacao_consistencia_fontes.md")
         return {
             "selected_codes": [],
             "residencia": {"corr": 0.0, "mean_pct": 0.0, "max_pct": 0.0, "accepted": False},
@@ -559,6 +589,8 @@ def validar_consistencia_fontes(target_name: str = "familia_dengue") -> dict:
     accepted = metrics_res["accepted"]
 
     combined.to_csv(BASE_DIR / "dados_processados" / "validacao_sinan_infosaude_2017.csv", index=False)
+    if run_dir is not None:
+        combined.to_csv(run_dir / "validacao_sinan_infosaude_2017.csv", index=False)
     
     # 5. Plotagem do Comparativo SINAN vs info-saude
     fig, axes = plt.subplots(2, 1, figsize=(13, 8), sharex=True)
@@ -578,10 +610,16 @@ def validar_consistencia_fontes(target_name: str = "familia_dengue") -> dict:
     plt.tight_layout()
     plt.savefig(OUTPUT_DIR / "sinan_infosaude_2017.png", dpi=220)
     plt.close()
+    if run_dir is not None:
+        import shutil
+        shutil.copy2(OUTPUT_DIR / "sinan_infosaude_2017.png", run_dir / "sinan_infosaude_2017.png")
 
-    pd.DataFrame(
+    sinan_counts_df = pd.DataFrame(
         [{"codigo": key, "n_df_res_ou_not": value} for key, value in sorted(class_counts.items())]
-    ).to_csv(BASE_DIR / "dados_processados" / "sinan_class_fin_counts_df_2017.csv", index=False)
+    )
+    sinan_counts_df.to_csv(BASE_DIR / "dados_processados" / "sinan_class_fin_counts_df_2017.csv", index=False)
+    if run_dir is not None:
+        sinan_counts_df.to_csv(run_dir / "sinan_class_fin_counts_df_2017.csv", index=False)
 
     report = [
         "# Validacao Consistencia Fontes - SINAN vs info-saude",
@@ -608,6 +646,8 @@ def validar_consistencia_fontes(target_name: str = "familia_dengue") -> dict:
             "sem reconciliar definicao de caso, cobertura e atraso de notificacao."
         )
     SINAN_REPORT_MD.write_text("\n".join(report), encoding="utf-8")
+    if run_dir is not None:
+        shutil.copy2(SINAN_REPORT_MD, run_dir / "validacao_consistencia_fontes.md")
     
     return {
         "selected_codes": selected_codes,

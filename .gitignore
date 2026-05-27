@@ -15,7 +15,10 @@ dataset_processado.parquet
 *.csv
 *.xlsx
 resultados_graficos/
-resultados_modelagem/
+!resultados_modelagem/
+resultados_modelagem/**/*.joblib
+!resultados_modelagem/**/*.csv
+!resultados_modelagem/**/*.json
 *.joblib
 .InfoDengue/
 .dados-gov/

@@ -174,7 +174,7 @@ def cv_score_parametros(df: pd.DataFrame, config: str, nome_modelo: str, paramet
         
     return float(np.mean(fold_rmses))
 
-def otimizar_hiperparametros(df: pd.DataFrame, config: str) -> tuple[pd.DataFrame, pd.DataFrame]:
+def otimizar_hiperparametros(df: pd.DataFrame, config: str, run_dir: Path | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Executa busca de parâmetros em grade (Grid Search) usando validação cruzada temporal.
     Salva os melhores modelos serializados na pasta resultados_modelagem/ e gera as previsões finais de teste.
@@ -182,6 +182,7 @@ def otimizar_hiperparametros(df: pd.DataFrame, config: str) -> tuple[pd.DataFram
     Parâmetros:
         df: DataFrame completo.
         config: Configuração de features ideal (vencedora).
+        run_dir (Path, opcional): Subdiretório versionado para salvar resultados desta execução.
         
     Retorna:
         tuple: (df_tuning_resultados, df_previsoes_finais_tunadas)
@@ -211,17 +212,27 @@ def otimizar_hiperparametros(df: pd.DataFrame, config: str) -> tuple[pd.DataFram
             rows.append({"modelo": model_name, "config": config, "cv_rmse": score, "params": json.dumps(params)})
             
     tuning = pd.DataFrame(rows).sort_values(["modelo", "cv_rmse"])
-    tuning.to_csv(BASE_DIR / "resultados_modelagem" / "resultados_otimizacao_nowcasting.csv", index=False)
+    
+    tuning_csv = run_dir / "resultados_otimizacao_nowcasting.csv" if run_dir else (BASE_DIR / "resultados_modelagem" / "resultados_otimizacao_nowcasting.csv")
+    tuning.to_csv(tuning_csv, index=False)
+    if run_dir:
+        tuning.to_csv(BASE_DIR / "resultados_modelagem" / "resultados_otimizacao_nowcasting.csv", index=False)
 
     final_pred_rows = []
+    model_output_dir = run_dir if run_dir else MODELOS_DIR
+    model_output_dir.mkdir(exist_ok=True, parents=True)
     MODELOS_DIR.mkdir(exist_ok=True)
+    
     for model_name in ["RF", "XGB"]:
         best = tuning[tuning["modelo"].eq(model_name)].iloc[0]
         params = json.loads(best["params"])
         model, pred_df, metrics, _, features = executar_ajuste_previsao(df, config, model_name, parametros=params)
         
-        out_path = MODELOS_DIR / ("modelo_rf_nowcasting.joblib" if model_name == "RF" else "modelo_xgb_nowcasting.joblib")
+        joblib_name = "modelo_rf_nowcasting.joblib" if model_name == "RF" else "modelo_xgb_nowcasting.joblib"
+        out_path = model_output_dir / joblib_name
         dump({"model": model, "config": config, "features": features, "params": params, "metrics": metrics}, out_path)
+        if run_dir:
+            dump({"model": model, "config": config, "features": features, "params": params, "metrics": metrics}, MODELOS_DIR / joblib_name)
         
         tmp = pred_df.copy()
         tmp["modelo"] = f"{model_name}_tunado"
@@ -229,17 +240,22 @@ def otimizar_hiperparametros(df: pd.DataFrame, config: str) -> tuple[pd.DataFram
         final_pred_rows.append(tmp)
 
     final_predictions = pd.concat(final_pred_rows, ignore_index=True)
-    final_predictions.to_csv(BASE_DIR / "resultados_modelagem" / "predicoes_nowcasting_operacional.csv", index=False)
+    
+    final_pred_csv = run_dir / "predicoes_nowcasting_operacional.csv" if run_dir else (BASE_DIR / "resultados_modelagem" / "predicoes_nowcasting_operacional.csv")
+    final_predictions.to_csv(final_pred_csv, index=False)
+    if run_dir:
+        final_predictions.to_csv(BASE_DIR / "resultados_modelagem" / "predicoes_nowcasting_operacional.csv", index=False)
     
     return tuning, final_predictions
 
-def executar_validacao_temporal(df: pd.DataFrame) -> pd.DataFrame:
+def executar_validacao_temporal(df: pd.DataFrame, run_dir: Path | None = None) -> pd.DataFrame:
     """
     Executa a validação temporal em janela móvel (rolling validation) comparando
     o nowcasting tradicional (janela de 1 semana) com o forecast fechado recursivo (múltiplas semanas).
     
     Parâmetros:
         df: DataFrame com o dataset completo processado.
+        run_dir (Path, opcional): Subdiretório versionado para salvar resultados desta execução.
         
     Retorna:
         pd.DataFrame: Métricas resultantes consolidadas da validação rolling.
@@ -316,7 +332,7 @@ def executar_validacao_temporal(df: pd.DataFrame) -> pd.DataFrame:
             
             # Calibrar os scores de não-conformidade (dinâmicos)
             calibracao = calibrar_intervalos_confianca(df_cal, alpha=0.10)
-            salvar_calibracao(calibracao)
+            salvar_calibracao(calibracao, run_dir=run_dir)
             
             # Aplicar intervalos no nowcasting (horizonte k=1)
             pred_now_ci = aplicar_limites_confianca(pred_now, calibracao, horizonte_k=1)
@@ -343,13 +359,20 @@ def executar_validacao_temporal(df: pd.DataFrame) -> pd.DataFrame:
             {"modo": "forecast_fechado_recursivo", **closed_metrics},
         ]
     )
-    result.to_csv(ROLLING_RESULTS_CSV, index=False)
     
-    pred_now_ci.assign(modo="nowcasting_rolling").to_csv(
-        BASE_DIR / "resultados_modelagem" / "predicoes_rolling_nowcasting.csv", index=False
-    )
-    pred_closed_ci.assign(modo="forecast_fechado_recursivo").to_csv(
-        BASE_DIR / "resultados_modelagem" / "predicoes_forecast_fechado.csv", index=False
-    )
+    rolling_results_csv = run_dir / "rolling_validation_resultados.csv" if run_dir else ROLLING_RESULTS_CSV
+    result.to_csv(rolling_results_csv, index=False)
+    if run_dir:
+        result.to_csv(ROLLING_RESULTS_CSV, index=False)
+    
+    pred_rolling_csv = run_dir / "predicoes_rolling_nowcasting.csv" if run_dir else (BASE_DIR / "resultados_modelagem" / "predicoes_rolling_nowcasting.csv")
+    pred_now_ci.assign(modo="nowcasting_rolling").to_csv(pred_rolling_csv, index=False)
+    if run_dir:
+        pred_now_ci.assign(modo="nowcasting_rolling").to_csv(BASE_DIR / "resultados_modelagem" / "predicoes_rolling_nowcasting.csv", index=False)
+        
+    pred_forecast_csv = run_dir / "predicoes_forecast_fechado.csv" if run_dir else (BASE_DIR / "resultados_modelagem" / "predicoes_forecast_fechado.csv")
+    pred_closed_ci.assign(modo="forecast_fechado_recursivo").to_csv(pred_forecast_csv, index=False)
+    if run_dir:
+        pred_closed_ci.assign(modo="forecast_fechado_recursivo").to_csv(BASE_DIR / "resultados_modelagem" / "predicoes_forecast_fechado.csv", index=False)
     
     return result

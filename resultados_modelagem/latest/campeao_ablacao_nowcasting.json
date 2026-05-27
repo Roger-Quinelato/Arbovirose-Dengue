@@ -1,0 +1,12 @@
+{
+  "config": "lag-only",
+  "modelo": "RF",
+  "r2_df": 0.6627074159543782,
+  "rmse_df": 13.68693178172258,
+  "accepted_complex_gain": false,
+  "best_observed_config": "lag+clima",
+  "best_observed_modelo": "RF",
+  "best_delta_r2_vs_baseline": 0.0014525000024248058,
+  "best_rmse_improved_pct_vs_baseline": 0.45714285714285713,
+  "reason": "Nenhuma config complexa superou o baseline; lag-only vence por conservadorismo."
+}
