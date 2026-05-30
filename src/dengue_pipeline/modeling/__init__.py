@@ -26,6 +26,9 @@ from dengue_pipeline.modeling.evaluation import (
     calcular_r2_robusto,
     calcular_erro_quadratico_medio,
     avaliar_cobertura_intervalo,
+    calcular_cobertura_intervalo,
+    calcular_wis,
+    calcular_calibration_error,
     consolidar_metricas_performance,
 )
 from dengue_pipeline.modeling.orchestration import (
