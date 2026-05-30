@@ -35,3 +35,6 @@ ipykernel>=6.25.0
 # --- Utilitários ---
 tqdm>=4.66.0                # barras de progresso
 python-dotenv>=1.0.0        # variáveis de ambiente (opcional)
+
+# --- Processamento de Documentos ---
+markitdown[pdf]             # Extração de PDFs e conversão para Markdown

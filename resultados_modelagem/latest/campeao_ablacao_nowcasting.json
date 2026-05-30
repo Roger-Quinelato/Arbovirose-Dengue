@@ -1,8 +1,9 @@
 {
+  "seed": 42,
   "config": "lag-only",
   "modelo": "RF",
   "r2_df": 0.6627074159543782,
-  "rmse_df": 13.686931781722581,
+  "rmse_df": 13.68693178172258,
   "accepted_complex_gain": false,
   "best_observed_config": "lag+clima",
   "best_observed_modelo": "RF",
