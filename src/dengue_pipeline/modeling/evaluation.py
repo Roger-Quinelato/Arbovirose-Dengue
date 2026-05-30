@@ -1,15 +1,17 @@
-import json
-import itertools
+# -*- coding: utf-8 -*-
+"""
+Módulo de Avaliação Pura e Métricas de Performance.
+
+Responsável estritamente pelo cálculo estatístico de métricas de performance
+(R², MAE, RMSE, sMAPE, cobertura) a partir de estruturas de dados prontas
+(arrays NumPy e DataFrames Pandas). Não realiza treinamento de modelos ou
+gravação física de arquivos de orquestração.
+"""
+
 import numpy as np
 import pandas as pd
-from pathlib import Path
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
-BASE_DIR = Path(__file__).resolve().parents[3]
-ABLATION_CSV = BASE_DIR / "resultados_modelagem" / "resultados_ablacao_nowcasting.csv"
-ABLATION_RA_CSV = BASE_DIR / "resultados_modelagem" / "resultados_ablation_por_ra.csv"
-ABLATION_PRED_CSV = BASE_DIR / "resultados_modelagem" / "predicoes_ablation.csv"
-WINNER_JSON = BASE_DIR / "resultados_modelagem" / "campeao_ablacao_nowcasting.json"
 
 def calcular_r2_robusto(y_true, y_pred) -> float:
     """
@@ -29,6 +31,7 @@ def calcular_r2_robusto(y_true, y_pred) -> float:
         return float("nan")
     return float(r2_score(y_true, y_pred))
 
+
 def calcular_erro_quadratico_medio(y_true, y_pred) -> float:
     """
     Calcula a raiz do erro quadrático médio (RMSE).
@@ -42,13 +45,43 @@ def calcular_erro_quadratico_medio(y_true, y_pred) -> float:
     """
     return float(np.sqrt(mean_squared_error(y_true, y_pred)))
 
+
+def avaliar_cobertura_intervalo(df_avaliado: pd.DataFrame) -> float:
+    """
+    Calcula a cobertura empírica real (coverage_score).
+    
+    Verifica a proporção de amostras cujo valor real de 'cases' caiu dentro
+    dos limites [lower_ci, upper_ci] das bandas conformalizadas.
+    
+    Parâmetros:
+        df_avaliado (pd.DataFrame): DataFrame contendo 'cases', 'lower_ci' e 'upper_ci'.
+        
+    Retorna:
+        float: Proporção de amostras cobertas (entre 0.0 e 1.0). Retorna NaN se
+               não houver amostras válidas.
+    """
+    required = {"cases", "lower_ci", "upper_ci"}
+    if not required.issubset(df_avaliado.columns):
+        raise ValueError(f"DataFrame deve conter as colunas {required}. Encontradas: {set(df_avaliado.columns)}")
+    
+    df = df_avaliado.dropna(subset=["cases", "lower_ci", "upper_ci"])
+    if df.empty:
+        return float("nan")
+    
+    dentro = (df["cases"] >= df["lower_ci"]) & (df["cases"] <= df["upper_ci"])
+    return float(dentro.mean())
+
+
 def consolidar_metricas_performance(pred_df: pd.DataFrame) -> tuple[dict, pd.DataFrame]:
     """
     Consolida métricas globais para o DF e individuais por Região Administrativa (RA).
     Calcula R², MAE e RMSE para ambas as escalas.
+    Quando colunas de intervalo de confiança ('lower_ci', 'upper_ci') estão presentes,
+    calcula automaticamente a cobertura empírica via coverage_score.
     
     Parâmetros:
         pred_df (pd.DataFrame): DataFrame contendo as colunas 'epi_sunday', 'RA', 'cases' e 'prediction'.
+                                Opcionalmente 'lower_ci' e 'upper_ci' para cálculo de cobertura.
         
     Retorna:
         tuple: (dicionario_metricas_globais, dataframe_metricas_por_ra)
@@ -90,149 +123,26 @@ def consolidar_metricas_performance(pred_df: pd.DataFrame) -> tuple[dict, pd.Dat
         "hit_rate_picos": hit_rate,
     }
     
+    # Cobertura empírica — calculada automaticamente quando colunas de CI estão presentes
+    ci_cols_present = {"lower_ci", "upper_ci"}.issubset(pred_df.columns)
+    if ci_cols_present:
+        coverage = avaliar_cobertura_intervalo(pred_df)
+        metrics["coverage_score"] = coverage
+    
     rows = []
     for ra, group in pred_df.groupby("RA"):
-        rows.append(
-            {
-                "RA": ra,
-                "r2_ra": calcular_r2_robusto(group["cases"], group["prediction"]),
-                "mae_ra": float(mean_absolute_error(group["cases"], group["prediction"])),
-                "rmse_ra": calcular_erro_quadratico_medio(group["cases"], group["prediction"]),
-            }
-        )
+        ra_row = {
+            "RA": ra,
+            "r2_ra": calcular_r2_robusto(group["cases"], group["prediction"]),
+            "mae_ra": float(mean_absolute_error(group["cases"], group["prediction"])),
+            "rmse_ra": calcular_erro_quadratico_medio(group["cases"], group["prediction"]),
+        }
+        # Cobertura por RA quando disponível
+        if ci_cols_present:
+            ra_row["coverage_ra"] = avaliar_cobertura_intervalo(group)
+        rows.append(ra_row)
     ra_df = pd.DataFrame(rows)
     metrics["r2_media_ras"] = float(ra_df["r2_ra"].mean(skipna=True))
     metrics["mae_media_ras"] = float(ra_df["mae_ra"].mean(skipna=True))
     metrics["rmse_media_ras"] = float(ra_df["rmse_ra"].mean(skipna=True))
     return metrics, ra_df
-
-def executar_estudo_ablacao(df: pd.DataFrame, run_dir: Path | None = None) -> tuple[pd.DataFrame, dict]:
-    """
-    Executa testes de ablação sistemáticos variando a complexidade das features
-    (lag-only, lag+clima, lag+clima+RA, lag+clima+RA+incid-target) e algoritmos (RF, XGB).
-    Determina a configuração vencedora baseado em critérios estritos de ganho de desempenho.
-    
-    Parâmetros:
-        df (pd.DataFrame): Dataset completo de entrada.
-        run_dir (Path, opcional): Subdiretório versionado para salvar resultados desta execução.
-        
-    Retorna:
-        tuple: (df_resultados_ablation, dict_especificacao_vencedora)
-    """
-    print(">>> P1: executando ablation tests...")
-    from dengue_pipeline.modeling.train_tuning import executar_ajuste_previsao
-    configs = [
-        "lag-only",
-        "lag+clima",
-        "lag+clima+RA",
-        "lag+clima+RA+incid-target",
-    ]
-    models = ["RF", "XGB"]
-    rows = []
-    ra_rows = []
-    pred_rows = []
-    ra_by_key = {}
-
-    for config, model_name in itertools.product(configs, models):
-        print(f"  - {config} / {model_name}")
-        model, pred_df, metrics, ra_metrics, features = executar_ajuste_previsao(df, config, model_name)
-        key = (config, model_name)
-        ra_by_key[key] = ra_metrics
-        rows.append(
-            {
-                "config": config,
-                "modelo": model_name,
-                "n_features": len(features),
-                **metrics,
-            }
-        )
-        tmp_ra = ra_metrics.copy()
-        tmp_ra["config"] = config
-        tmp_ra["modelo"] = model_name
-        ra_rows.append(tmp_ra)
-        
-        tmp_pred = pred_df.copy()
-        tmp_pred["config"] = config
-        tmp_pred["modelo"] = model_name
-        pred_rows.append(tmp_pred)
-
-    result = pd.DataFrame(rows)
-    ra_result = pd.concat(ra_rows, ignore_index=True)
-    pred_result = pd.concat(pred_rows, ignore_index=True)
-
-    for model_name in models:
-        prev_config = None
-        for config in configs:
-            idx = (result["config"].eq(config)) & (result["modelo"].eq(model_name))
-            if prev_config is None:
-                result.loc[idx, "delta_r2_df_vs_prev"] = np.nan
-                result.loc[idx, "rmse_improved_pct_vs_prev"] = np.nan
-                result.loc[idx, "passes_acceptance_vs_prev"] = False
-            else:
-                cur = result.loc[idx].iloc[0]
-                prev = result[
-                    result["config"].eq(prev_config) & result["modelo"].eq(model_name)
-                ].iloc[0]
-                cur_ra = ra_by_key[(config, model_name)].set_index("RA")
-                prev_ra = ra_by_key[(prev_config, model_name)].set_index("RA")
-                aligned = cur_ra.join(prev_ra, lsuffix="_cur", rsuffix="_prev")
-                improved_pct = float((aligned["rmse_ra_cur"] < aligned["rmse_ra_prev"]).mean())
-                delta = float(cur["r2_df"] - prev["r2_df"])
-                
-                result.loc[idx, "delta_r2_df_vs_prev"] = delta
-                result.loc[idx, "rmse_improved_pct_vs_prev"] = improved_pct
-                result.loc[idx, "passes_acceptance_vs_prev"] = (delta > 0.05) or (improved_pct > 0.70)
-            prev_config = config
-
-    baseline_best = result[result["config"].eq("lag-only")].sort_values("r2_df", ascending=False).iloc[0]
-    best_observed = result.sort_values("r2_df", ascending=False).iloc[0]
-    best_ra = ra_by_key[(best_observed["config"], best_observed["modelo"])].set_index("RA")
-    base_ra = ra_by_key[(baseline_best["config"], baseline_best["modelo"])].set_index("RA")
-    
-    aligned = best_ra.join(base_ra, lsuffix="_best", rsuffix="_base")
-    best_delta = float(best_observed["r2_df"] - baseline_best["r2_df"])
-    best_improved_pct = float((aligned["rmse_ra_best"] < aligned["rmse_ra_base"]).mean())
-    accepted = (best_delta > 0.05) or (best_improved_pct > 0.70)
-    
-    if accepted:
-        winner_row = best_observed
-        winner_reason = "Melhor config superou o baseline pelo criterio de aceite."
-    else:
-        winner_row = baseline_best
-        winner_reason = "Nenhuma config complexa superou o baseline; lag-only vence por conservadorismo."
-        
-    winner = {
-        "config": str(winner_row["config"]),
-        "modelo": str(winner_row["modelo"]),
-        "r2_df": float(winner_row["r2_df"]),
-        "rmse_df": float(winner_row["rmse_df"]),
-        "accepted_complex_gain": bool(accepted),
-        "best_observed_config": str(best_observed["config"]),
-        "best_observed_modelo": str(best_observed["modelo"]),
-        "best_delta_r2_vs_baseline": best_delta,
-        "best_rmse_improved_pct_vs_baseline": best_improved_pct,
-        "reason": winner_reason,
-    }
-
-    out_ablation_csv = run_dir / "resultados_ablacao_nowcasting.csv" if run_dir else ABLATION_CSV
-    out_ablation_ra_csv = run_dir / "resultados_ablation_por_ra.csv" if run_dir else ABLATION_RA_CSV
-    out_ablation_pred_csv = run_dir / "predicoes_ablation.csv" if run_dir else ABLATION_PRED_CSV
-    out_winner_json = run_dir / "campeao_ablacao_nowcasting.json" if run_dir else WINNER_JSON
-
-    result.to_csv(out_ablation_csv, index=False)
-    if run_dir:
-        result.to_csv(ABLATION_CSV, index=False)
-
-    ra_result.to_csv(out_ablation_ra_csv, index=False)
-    if run_dir:
-        ra_result.to_csv(ABLATION_RA_CSV, index=False)
-
-    pred_result.to_csv(out_ablation_pred_csv, index=False)
-    if run_dir:
-        pred_result.to_csv(ABLATION_PRED_CSV, index=False)
-
-    out_winner_json.write_text(json.dumps(winner, indent=2, ensure_ascii=False), encoding="utf-8")
-    if run_dir:
-        WINNER_JSON.write_text(json.dumps(winner, indent=2, ensure_ascii=False), encoding="utf-8")
-    
-    return result, winner

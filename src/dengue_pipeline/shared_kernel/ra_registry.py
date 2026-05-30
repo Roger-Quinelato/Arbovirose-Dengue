@@ -2,8 +2,7 @@ import unicodedata
 from pathlib import Path
 import pandas as pd
 
-# Caminho base para acessar arquivos de dados
-BASE_DIR = Path(__file__).resolve().parents[3]
+from dengue_pipeline.config import BASE_DIR
 
 def sanitizar_texto(valor) -> str | None:
     """

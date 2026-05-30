@@ -14,15 +14,20 @@ from dengue_pipeline.etl import ingestar_dados_saude_local, mascaras_target
 from dengue_pipeline.etl.case_ingestion import FAMILIA_DENGUE
 from dengue_pipeline.modeling import calcular_r2_robusto, calcular_erro_quadratico_medio, consolidar_metricas_performance
 
-BASE_DIR = Path(__file__).resolve().parents[3]
-OUTPUT_DIR = BASE_DIR / "resultados_graficos"
-NOTEBOOK_DIR = BASE_DIR / ".notebook"
+import logging
+logger = logging.getLogger(__name__)
+from dengue_pipeline.config import (
+    BASE_DIR,
+    GRAFICOS_DIR as OUTPUT_DIR,
+    NOTEBOOK_DIR,
+    ABLATION_CSV,
+    ABLATION_RA_CSV,
+    ABLATION_PRED_CSV,
+)
+
 DADOS_GOV_DIR = BASE_DIR / "dados-gov"
 FINAL_REPORT_MD = NOTEBOOK_DIR / "relatorio_final_execucao.md"
 SINAN_REPORT_MD = NOTEBOOK_DIR / "validacao_consistencia_fontes.md"
-ABLATION_CSV = BASE_DIR / "resultados_modelagem" / "resultados_ablacao_nowcasting.csv"
-ABLATION_RA_CSV = BASE_DIR / "resultados_modelagem" / "resultados_ablation_por_ra.csv"
-ABLATION_PRED_CSV = BASE_DIR / "resultados_modelagem" / "predicoes_ablation.csv"
 
 def formatar_tabela_markdown(df: pd.DataFrame) -> str:
     """
@@ -56,7 +61,7 @@ def analisar_alvo_epidemiologico(run_dir: Path | None = None) -> tuple[pd.DataFr
     Retorna:
         tuple: (df_resumo_anual, dict_resumo_decisao)
     """
-    print(">>> P0/P1: formalizando target epidemiologico...")
+    logger.info(">>> P0/P1: formalizando target epidemiologico...")
     df = ingestar_dados_saude_local()
     masks = mascaras_target(df)
     
@@ -163,7 +168,7 @@ def gerar_visualizacoes_eda(dataset: pd.DataFrame, run_dir: Path | None = None) 
     Parâmetros:
         dataset (pd.DataFrame): Dataset processado contendo casos, incidência e lags.
     """
-    print(">>> P1: gerando graficos de EDA...")
+    logger.info(">>> P1: gerando graficos de EDA...")
     OUTPUT_DIR.mkdir(exist_ok=True)
     import shutil
     
@@ -308,7 +313,7 @@ def gerar_painel_final(df: pd.DataFrame, winner: dict, final_predictions: pd.Dat
         final_predictions (pd.DataFrame): Previsões finais tunadas dos modelos.
         run_dir (Path, opcional): Subdiretório versionado para salvar resultados desta execução.
     """
-    print(">>> P1: gerando visualizacoes finais e relatorio...")
+    logger.info(">>> P1: gerando visualizacoes finais e relatorio...")
     OUTPUT_DIR.mkdir(exist_ok=True)
     NOTEBOOK_DIR.mkdir(exist_ok=True)
     import shutil
@@ -474,10 +479,10 @@ def validar_consistencia_fontes(target_name: str = "familia_dengue", run_dir: Pa
     Retorna:
         dict: Estatísticas e resultado de aceitação da validação.
     """
-    print(">>> P2: validando SINAN 2017 vs info-saude 2017...")
+    logger.info(">>> P2: validando SINAN 2017 vs info-saude 2017...")
     sinan_file = DADOS_GOV_DIR / "DENGBR17.csv"
     if not sinan_file.exists():
-        print(f"  [AVISO] Arquivo do SINAN para validação não encontrado em {sinan_file}. Pulando validação.")
+        logger.warning(f"  [AVISO] Arquivo do SINAN para validação não encontrado em {sinan_file}. Pulando validação.")
         report = [
             "# Validacao Consistencia Fontes - SINAN vs info-saude",
             "",

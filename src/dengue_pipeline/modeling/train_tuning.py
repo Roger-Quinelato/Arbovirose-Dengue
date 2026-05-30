@@ -7,12 +7,20 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import ParameterGrid, TimeSeriesSplit
 from xgboost import XGBRegressor
 
-from dengue_pipeline.modeling.feature_engineering import preparar_matriz_design, obter_configuracao_features
-
-BASE_DIR = Path(__file__).resolve().parents[3]
-MODELOS_DIR = BASE_DIR / "resultados_modelagem"
-ROLLING_RESULTS_CSV = BASE_DIR / "resultados_modelagem" / "rolling_validation_resultados.csv"
-
+from dengue_pipeline.modeling.feature_engineering import (
+    preparar_matriz_design,
+    obter_configuracao_features,
+    construir_pipeline_modelo,
+    obter_colunas_entrada_pipeline,
+)
+from dengue_pipeline.modeling.evaluation import (
+    calcular_erro_quadratico_medio,
+    consolidar_metricas_performance,
+)
+from dengue_pipeline.modeling.types import TuningResult
+from dengue_pipeline.config import BASE_DIR, MODELOS_DIR
+import logging
+logger = logging.getLogger(__name__)
 def dividir_treino_teste_temporal(df: pd.DataFrame, ano_teste: int = 2025) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Realiza a divisão temporal entre os conjuntos de treino e teste.
@@ -61,10 +69,66 @@ def fabrica_modelos(nome_modelo: str, parametros: dict | None = None):
         return XGBRegressor(**defaults)
     raise ValueError(f"Modelo desconhecido: {nome_modelo}")
 
+
+def _preparar_entrada_pipeline(df: pd.DataFrame, config: str) -> pd.DataFrame:
+    """
+    Filtra e prepara o DataFrame para entrada no pipeline scikit-learn,
+    removendo linhas com NaN nas colunas necessárias.
+
+    Parâmetros:
+        df (pd.DataFrame): DataFrame bruto.
+        config (str): Configuração de features.
+
+    Retorna:
+        pd.DataFrame: DataFrame limpo pronto para pipeline.fit() ou .predict().
+    """
+    spec = obter_configuracao_features(config)
+    colunas_pipeline = obter_colunas_entrada_pipeline(config)
+    # Colunas auxiliares que precisam existir para métricas (não entram no pipeline)
+    colunas_meta = ["epi_sunday", "RA", "cases", "populacao"]
+    if spec["target"] == "incidencia_100k":
+        colunas_meta.append("incidencia_100k")
+
+    todas = list(set(colunas_pipeline + colunas_meta))
+    existentes = [c for c in todas if c in df.columns]
+    frame = df.dropna(subset=[c for c in existentes if c in df.columns]).copy()
+    return frame
+
+
+def _prever_com_pipeline(pipeline, frame: pd.DataFrame, config: str, spec: dict) -> np.ndarray:
+    """
+    Realiza a previsão usando o pipeline scikit-learn.
+    O TransformedTargetRegressor já inverte a transformação log1p automaticamente,
+    então a saída está na escala original do target.
+
+    Se o target for incidência, converte para casos absolutos.
+
+    Parâmetros:
+        pipeline: Pipeline treinado.
+        frame (pd.DataFrame): DataFrame de entrada com as colunas necessárias.
+        config (str): Configuração de features.
+        spec (dict): Especificação de features.
+
+    Retorna:
+        np.ndarray: Previsões de casos reais (absolutos) não-negativas.
+    """
+    colunas_pipeline = obter_colunas_entrada_pipeline(config)
+    X = frame[colunas_pipeline]
+    pred_target = pipeline.predict(X)
+    pred_target = np.clip(pred_target, 0, None)
+
+    if spec["target"] == "incidencia_100k":
+        return pred_target * frame["populacao"].to_numpy(dtype=float) / 100000
+    return pred_target
+
+
 def prever_casos_recursivo(model, X: pd.DataFrame, frame: pd.DataFrame, spec: dict) -> np.ndarray:
     """
     Realiza a previsão de casos usando o modelo treinado, desfazendo a escala logarítmica
     e convertendo incidência para número de casos absolutos quando necessário.
+
+    NOTA: Esta função é mantida para retrocompatibilidade com código legado.
+    Para novos usos, preferir _prever_com_pipeline que trabalha com o Pipeline scikit-learn.
     
     Parâmetros:
         model: Modelo de regressão treinado.
@@ -81,16 +145,18 @@ def prever_casos_recursivo(model, X: pd.DataFrame, frame: pd.DataFrame, spec: di
         return pred_target * frame["populacao"].to_numpy(dtype=float) / 100000
     return pred_target
 
+
 def executar_ajuste_previsao(
     df: pd.DataFrame,
     config: str,
     nome_modelo: str,
     parametros: dict | None = None,
     ano_teste: int = 2025,
-):
+) -> TuningResult:
     """
     Ajusta e prediz usando uma configuração de features e modelo específicos.
-    Auxilia no isolamento de modelagem e testes de ablação.
+    Utiliza Pipeline scikit-learn com ColumnTransformer e TransformedTargetRegressor
+    para garantir isolamento de dados e transformação automática do target.
     
     Parâmetros:
         df: DataFrame completo.
@@ -100,34 +166,47 @@ def executar_ajuste_previsao(
         ano_teste: Ano inicial de corte.
         
     Retorna:
-        tuple: (modelo_treinado, pred_df, metricas, ra_metricas, features_list)
+        TuningResult: NamedTuple contendo estimador, predições, métricas e features.
     """
-    # Evitar import circular
-    from dengue_pipeline.modeling.evaluation import consolidar_metricas_performance
-    
     treino, teste = dividir_treino_teste_temporal(df, ano_teste)
     spec = obter_configuracao_features(config)
-    dummy_columns = None
-    if spec["ra"]:
-        # Dummies derivadas exclusivamente do conjunto de treino para evitar
-        # que RAs presentes apenas no teste influenciem a estrutura do modelo.
-        dummy_columns = pd.get_dummies(treino["RA"], prefix="RA", dtype=float).columns.tolist()
-        
-    X_treino, y_treino, treino_frame, features, spec = preparar_matriz_design(treino, config, dummy_columns)
-    X_teste, y_teste, teste_frame, _, spec = preparar_matriz_design(teste, config, dummy_columns)
-    
+
+    # Preparar frames limpos
+    treino_frame = _preparar_entrada_pipeline(treino, config)
+    teste_frame = _preparar_entrada_pipeline(teste, config)
+
+    # Construir pipeline scikit-learn (OHE isolado por fold)
     modelo = fabrica_modelos(nome_modelo, parametros)
-    modelo.fit(X_treino, y_treino)
-    predicoes = prever_casos_recursivo(modelo, X_teste, teste_frame, spec)
+    pipeline = construir_pipeline_modelo(config, modelo)
+
+    # Colunas de entrada do pipeline
+    colunas_pipeline = obter_colunas_entrada_pipeline(config)
+    X_treino = treino_frame[colunas_pipeline]
+    y_treino = treino_frame[spec["target"]].astype(float)
+
+    # Fit (log1p do target é feito pelo TransformedTargetRegressor internamente)
+    pipeline.fit(X_treino, y_treino)
+
+    # Predict (expm1 do target é automático via TransformedTargetRegressor)
+    predicoes = _prever_com_pipeline(pipeline, teste_frame, config, spec)
+
     pred_df = teste_frame[["epi_sunday", "RA", "cases", "incidencia_100k", "populacao"]].copy()
     pred_df["prediction"] = predicoes
     
     metricas, ra_metricas = consolidar_metricas_performance(pred_df)
-    return modelo, pred_df, metricas, ra_metricas, features
+    return TuningResult(
+        model=pipeline,
+        predictions=pred_df,
+        metrics=metricas,
+        ra_metrics=ra_metricas,
+        features=colunas_pipeline,
+    )
+
 
 def cv_score_parametros(df: pd.DataFrame, config: str, nome_modelo: str, parametros: dict) -> float:
     """
     Calcula o score de validação cruzada temporal (TimeSeriesSplit) para um conjunto de parâmetros.
+    Usa Pipeline scikit-learn para garantir que OneHotEncoder é fitado apenas no treino de cada fold.
     
     Parâmetros:
         df: DataFrame original.
@@ -138,9 +217,6 @@ def cv_score_parametros(df: pd.DataFrame, config: str, nome_modelo: str, paramet
     Retorna:
         float: RMSE médio da validação cruzada temporal.
     """
-    # Evitar import circular
-    from dengue_pipeline.modeling.evaluation import calcular_erro_quadratico_medio
-    
     treino_completo, _ = dividir_treino_teste_temporal(df, 2025)
     datas = np.array(sorted(treino_completo["epi_sunday"].unique()))
     # gap=4: exclui as 4 semanas imediatamente anteriores à validação do treino.
@@ -148,29 +224,33 @@ def cv_score_parametros(df: pd.DataFrame, config: str, nome_modelo: str, paramet
     # e evita que dados da borda de treino "contaminem" a validação via lags recentes.
     splitter = TimeSeriesSplit(n_splits=5, gap=4)
     spec = obter_configuracao_features(config)
-    dummy_columns = None
-    if spec["ra"]:
-        # Dummies calculadas sobre treino_completo (não sobre df inteiro que inclui 2025)
-        dummy_columns = pd.get_dummies(treino_completo["RA"], prefix="RA", dtype=float).columns.tolist()
-        
+    colunas_pipeline = obter_colunas_entrada_pipeline(config)
+
     fold_rmses = []
     for train_idx, val_idx in splitter.split(datas):
         train_dates = set(datas[train_idx])
         val_dates = set(datas[val_idx])
         fold_train = treino_completo[treino_completo["epi_sunday"].isin(train_dates)]
         fold_val = treino_completo[treino_completo["epi_sunday"].isin(val_dates)]
-        
-        X_train, y_train, _, _, spec = preparar_matriz_design(fold_train, config, dummy_columns)
-        X_val, _, val_frame, _, spec = preparar_matriz_design(fold_val, config, dummy_columns)
-        
-        if X_train.empty or X_val.empty:
+
+        # Preparar frames limpos
+        fold_train_clean = _preparar_entrada_pipeline(fold_train, config)
+        fold_val_clean = _preparar_entrada_pipeline(fold_val, config)
+
+        if fold_train_clean.empty or fold_val_clean.empty:
             continue
-            
-        model = fabrica_modelos(nome_modelo, parametros)
-        model.fit(X_train, y_train)
-        
-        preds = prever_casos_recursivo(model, X_val, val_frame, spec)
-        fold_rmses.append(calcular_erro_quadratico_medio(val_frame["cases"], preds))
+
+        # Pipeline reconstruído por fold — OHE é fitado isoladamente no treino do fold
+        modelo = fabrica_modelos(nome_modelo, parametros)
+        pipeline = construir_pipeline_modelo(config, modelo)
+
+        X_train = fold_train_clean[colunas_pipeline]
+        y_train = fold_train_clean[spec["target"]].astype(float)
+
+        pipeline.fit(X_train, y_train)
+
+        preds = _prever_com_pipeline(pipeline, fold_val_clean, config, spec)
+        fold_rmses.append(calcular_erro_quadratico_medio(fold_val_clean["cases"], preds))
         
     return float(np.mean(fold_rmses))
 
@@ -187,7 +267,7 @@ def otimizar_hiperparametros(df: pd.DataFrame, config: str, run_dir: Path | None
     Retorna:
         tuple: (df_tuning_resultados, df_previsoes_finais_tunadas)
     """
-    print(f">>> P1: tuning RF e XGBoost na config {config}...")
+    logger.info(f">>> P1: tuning RF e XGBoost na config {config}...")
     # Grid otimizado com os melhores parâmetros encontrados anteriormente para aceleração de re-execução
     param_grid_rf = {
         "n_estimators": [500],
@@ -207,7 +287,7 @@ def otimizar_hiperparametros(df: pd.DataFrame, config: str, run_dir: Path | None
     for model_name, grid in [("RF", param_grid_rf), ("XGB", param_grid_xgb)]:
         grid_list = list(ParameterGrid(grid))
         for i, params in enumerate(grid_list, start=1):
-            print(f"  - {model_name} grid {i}/{len(grid_list)}")
+            logger.info(f"  - {model_name} grid {i}/{len(grid_list)}")
             score = cv_score_parametros(df, config, model_name, params)
             rows.append({"modelo": model_name, "config": config, "cv_rmse": score, "params": json.dumps(params)})
             
@@ -226,13 +306,13 @@ def otimizar_hiperparametros(df: pd.DataFrame, config: str, run_dir: Path | None
     for model_name in ["RF", "XGB"]:
         best = tuning[tuning["modelo"].eq(model_name)].iloc[0]
         params = json.loads(best["params"])
-        model, pred_df, metrics, _, features = executar_ajuste_previsao(df, config, model_name, parametros=params)
+        pipeline, pred_df, metrics, _, features = executar_ajuste_previsao(df, config, model_name, parametros=params)
         
         joblib_name = "modelo_rf_nowcasting.joblib" if model_name == "RF" else "modelo_xgb_nowcasting.joblib"
         out_path = model_output_dir / joblib_name
-        dump({"model": model, "config": config, "features": features, "params": params, "metrics": metrics}, out_path)
+        dump({"model": pipeline, "config": config, "features": features, "params": params, "metrics": metrics}, out_path)
         if run_dir:
-            dump({"model": model, "config": config, "features": features, "params": params, "metrics": metrics}, MODELOS_DIR / joblib_name)
+            dump({"model": pipeline, "config": config, "features": features, "params": params, "metrics": metrics}, MODELOS_DIR / joblib_name)
         
         tmp = pred_df.copy()
         tmp["modelo"] = f"{model_name}_tunado"
@@ -247,132 +327,3 @@ def otimizar_hiperparametros(df: pd.DataFrame, config: str, run_dir: Path | None
         final_predictions.to_csv(BASE_DIR / "resultados_modelagem" / "predicoes_nowcasting_operacional.csv", index=False)
     
     return tuning, final_predictions
-
-def executar_validacao_temporal(df: pd.DataFrame, run_dir: Path | None = None) -> pd.DataFrame:
-    """
-    Executa a validação temporal em janela móvel (rolling validation) comparando
-    o nowcasting tradicional (janela de 1 semana) com o forecast fechado recursivo (múltiplas semanas).
-    
-    Parâmetros:
-        df: DataFrame com o dataset completo processado.
-        run_dir (Path, opcional): Subdiretório versionado para salvar resultados desta execução.
-        
-    Retorna:
-        pd.DataFrame: Métricas resultantes consolidadas da validação rolling.
-    """
-    print(">>> P1: executando rolling validation nowcasting vs forecast fechado...")
-    from dengue_pipeline.modeling.evaluation import consolidar_metricas_performance
-    
-    config = "lag+clima+RA"
-    model, pred_now, now_metrics, _, _ = executar_ajuste_previsao(df, config, "RF", ano_teste=2025)
-
-    train, test = dividir_treino_teste_temporal(df, 2025)
-    spec = obter_configuracao_features(config)
-    dummy_columns = pd.get_dummies(train["RA"], prefix="RA", dtype=float).columns.tolist()
-    X_train, y_train, train_frame, features, spec = preparar_matriz_design(train, config, dummy_columns)
-    
-    rf = fabrica_modelos("RF")
-    rf.fit(X_train, y_train)
-
-    history = {
-        ra: list(group.sort_values("epi_sunday")["cases"].astype(float).values)
-        for ra, group in train.groupby("RA")
-    }
-    
-    def obter_lag_cases(ra: str, lag_val: int) -> float:
-        ra_history = history.get(ra, [])
-        if len(ra_history) >= lag_val:
-            return ra_history[-lag_val]
-        return np.nan
-
-    recursive_rows = []
-    test_sorted = test.sort_values(["epi_sunday", "RA"]).copy()
-    for date in sorted(test_sorted["epi_sunday"].unique()):
-        rows = test_sorted[test_sorted["epi_sunday"].eq(date)].copy()
-        for lag in [1, 2, 3, 4]:
-            rows[f"cases_lag_{lag}"] = rows["RA"].map(
-                lambda ra, lag_val=lag: obter_lag_cases(ra, lag_val)
-            )
-        X_rows, _, rows_frame, _, _ = preparar_matriz_design(rows, config, dummy_columns)
-        if rows_frame.empty:
-            continue
-        preds = prever_casos_recursivo(rf, X_rows, rows_frame, spec)
-        rows_frame = rows_frame[["epi_sunday", "RA", "cases", "incidencia_100k", "populacao"]].copy()
-        rows_frame["prediction"] = preds
-        
-        for ra, pred in zip(rows_frame["RA"], preds):
-            history.setdefault(ra, []).append(float(pred))
-        recursive_rows.append(rows_frame)
-        
-    pred_closed = pd.concat(recursive_rows, ignore_index=True)
-    closed_metrics, _ = consolidar_metricas_performance(pred_closed)
-
-    # -----------------------------------------------------------------------
-    # Conformal Prediction — Intervalos de Confiança Calibrados Dinâmicos (90%)
-    # -----------------------------------------------------------------------
-    from dengue_pipeline.modeling.conformal_prediction import (
-        calibrar_intervalos_confianca, aplicar_limites_confianca, salvar_calibracao
-    )
-    
-    # Usar as últimas 26 semanas do treino como conjunto de calibração conformal
-    # (equivalente a ~6 meses — captura padrão sazonal de alta e baixa transmissão)
-    n_cal_weeks = 26
-    cal_dates = sorted(train["epi_sunday"].unique())[-n_cal_weeks:]
-    df_cal_raw = train[train["epi_sunday"].isin(cal_dates)].copy()
-    
-    # Gerar previsões para o conjunto de calibração usando o mesmo modelo
-    try:
-        # Filtrar apenas as semanas de calibração (as últimas do treino)
-        cal_dummies = pd.get_dummies(train["RA"], prefix="RA", dtype=float).columns.tolist()
-        X_cal, _, cal_frame, _, _ = preparar_matriz_design(df_cal_raw, config, cal_dummies)
-        if not X_cal.empty:
-            preds_cal = prever_casos_recursivo(rf, X_cal, cal_frame, spec)
-            df_cal = cal_frame[["epi_sunday", "RA", "cases"]].copy()
-            df_cal["prediction"] = preds_cal
-            
-            # Calibrar os scores de não-conformidade (dinâmicos)
-            calibracao = calibrar_intervalos_confianca(df_cal, alpha=0.10)
-            salvar_calibracao(calibracao, run_dir=run_dir)
-            
-            # Aplicar intervalos no nowcasting (horizonte k=1)
-            pred_now_ci = aplicar_limites_confianca(pred_now, calibracao, horizonte_k=1)
-            
-            # Aplicar intervalos no forecast fechado com expansão pelo horizonte k (vetorizado)
-            pred_closed_ci = pred_closed.copy()
-            pred_closed_ci["step_k"] = pred_closed_ci.groupby("RA").cumcount() + 1
-            pred_closed_ci = aplicar_limites_confianca(pred_closed_ci, calibracao, horizonte_k=pred_closed_ci["step_k"])
-            pred_closed_ci = pred_closed_ci.drop(columns=["step_k"])
-        else:
-            pred_now_ci = pred_now.assign(lower_ci=np.nan, upper_ci=np.nan)
-            pred_closed_ci = pred_closed.assign(lower_ci=np.nan, upper_ci=np.nan)
-    except Exception as e:
-        import traceback
-        import warnings
-        warnings.warn(f"Conformal prediction falhou: {e}\n{traceback.format_exc()}")
-        print(f"  [AVISO] Conformal prediction falhou: {e}. Salvando sem intervalos de confiança.")
-        pred_now_ci = pred_now.assign(lower_ci=np.nan, upper_ci=np.nan)
-        pred_closed_ci = pred_closed.assign(lower_ci=np.nan, upper_ci=np.nan)
-
-    result = pd.DataFrame(
-        [
-            {"modo": "nowcasting_rolling", **now_metrics},
-            {"modo": "forecast_fechado_recursivo", **closed_metrics},
-        ]
-    )
-    
-    rolling_results_csv = run_dir / "rolling_validation_resultados.csv" if run_dir else ROLLING_RESULTS_CSV
-    result.to_csv(rolling_results_csv, index=False)
-    if run_dir:
-        result.to_csv(ROLLING_RESULTS_CSV, index=False)
-    
-    pred_rolling_csv = run_dir / "predicoes_rolling_nowcasting.csv" if run_dir else (BASE_DIR / "resultados_modelagem" / "predicoes_rolling_nowcasting.csv")
-    pred_now_ci.assign(modo="nowcasting_rolling").to_csv(pred_rolling_csv, index=False)
-    if run_dir:
-        pred_now_ci.assign(modo="nowcasting_rolling").to_csv(BASE_DIR / "resultados_modelagem" / "predicoes_rolling_nowcasting.csv", index=False)
-        
-    pred_forecast_csv = run_dir / "predicoes_forecast_fechado.csv" if run_dir else (BASE_DIR / "resultados_modelagem" / "predicoes_forecast_fechado.csv")
-    pred_closed_ci.assign(modo="forecast_fechado_recursivo").to_csv(pred_forecast_csv, index=False)
-    if run_dir:
-        pred_closed_ci.assign(modo="forecast_fechado_recursivo").to_csv(BASE_DIR / "resultados_modelagem" / "predicoes_forecast_fechado.csv", index=False)
-    
-    return result

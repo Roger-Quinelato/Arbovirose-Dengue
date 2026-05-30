@@ -1,7 +1,7 @@
 import pandas as pd
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parents[3]
+from dengue_pipeline.config import BASE_DIR
 
 def carregar_cache_climatico() -> pd.DataFrame:
     """

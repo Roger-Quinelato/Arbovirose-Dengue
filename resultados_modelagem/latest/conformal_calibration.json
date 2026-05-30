@@ -1,6 +1,14 @@
 {
-  "q_conf": 0.9563027978699857,
   "alpha": 0.1,
-  "n_cal": 910,
-  "epsilon": 0.01
+  "epsilon_adaptativo": 0.1,
+  "quantiles_por_horizonte": {
+    "1": 0.81635530914072,
+    "2": 0.7955383865425557,
+    "3": 0.8613455890542587,
+    "4": 0.7484234121477891
+  },
+  "metadata": {
+    "n_total_calibration": 910,
+    "data_calibracao": "2026-05-27T12:48:44"
+  }
 }

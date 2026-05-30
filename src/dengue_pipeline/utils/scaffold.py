@@ -2,8 +2,9 @@ import json
 from pathlib import Path
 
 # Detecta a pasta raiz de forma dinâmica
-BASE_DIR = Path(__file__).resolve().parents[3]
-NOTEBOOK_DIR = BASE_DIR / ".notebook"
+from dengue_pipeline.config import BASE_DIR, NOTEBOOK_DIR
+import logging
+logger = logging.getLogger(__name__)
 
 def celula_notebook(tipo_celula: str, codigo_fonte: str) -> dict:
     """
@@ -58,7 +59,7 @@ def escrever_notebooks() -> None:
     Cria os dois notebooks do projeto (modelagem e validação) de forma dinâmica,
     substituindo caminhos hardcoded por caminhos baseados em detecção relativa do repositório.
     """
-    print(">>> Gerando notebooks...")
+    logger.info(">>> Gerando notebooks...")
     
     codigo_setup_notebook = (
         "from pathlib import Path\n"

@@ -186,6 +186,14 @@ python scripts/gerar_populacao_historica.py
 ### 3. Executar o pipeline modular
 
 ```bash
+# Opcional: Fixar a semente aleatória para garantir reprodutibilidade exata (Padrão: 42)
+# Windows PowerShell:
+# $env:PIPELINE_SEED="42"
+# Windows CMD:
+# set PIPELINE_SEED=42
+# Linux/Mac:
+# export PIPELINE_SEED=42
+
 python -m dengue_pipeline
 ```
 

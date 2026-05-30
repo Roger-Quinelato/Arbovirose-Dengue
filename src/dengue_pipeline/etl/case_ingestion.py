@@ -2,7 +2,9 @@ import pandas as pd
 from pathlib import Path
 from dengue_pipeline.shared_kernel import sanitizar_texto, calcular_semana_epidemiologica
 
-BASE_DIR = Path(__file__).resolve().parents[3]
+from dengue_pipeline.config import BASE_DIR
+import logging
+logger = logging.getLogger(__name__)
 DIRETORIO_INFO_SAUDE = BASE_DIR / "info-saude"
 
 COLUNAS_INFO_SAUDE = [
@@ -38,7 +40,7 @@ def ingestar_dados_saude_local() -> pd.DataFrame:
         try:
             df = pd.read_csv(file, sep=";", encoding="utf-8", usecols=COLUNAS_INFO_SAUDE)
         except UnicodeDecodeError:
-            print(f"  [AVISO] Encoding UTF-8 falhou em {file.name}. Tentando latin-1...")
+            logger.warning(f"  [AVISO] Encoding UTF-8 falhou em {file.name}. Tentando latin-1...")
             df = pd.read_csv(file, sep=";", encoding="latin-1", usecols=COLUNAS_INFO_SAUDE)
         df["source_file"] = file.name
         frames.append(df)

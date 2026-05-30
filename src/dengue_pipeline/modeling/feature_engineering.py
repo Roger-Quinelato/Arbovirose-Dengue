@@ -1,13 +1,14 @@
 import numpy as np
 import pandas as pd
 from pathlib import Path
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import OneHotEncoder
+from sklearn.compose import TransformedTargetRegressor
 
 from dengue_pipeline.shared_kernel import padronizar_regioes_administrativas, carregar_historico_populacao
 from dengue_pipeline.etl import ingestar_dados_saude_local, mascaras_target, carregar_cache_climatico
-
-BASE_DIR = Path(__file__).resolve().parents[3]
-CAMINHO_DATASET_PARQUET = BASE_DIR / "dados_processados" / "dataset_processado.parquet"
-
+from dengue_pipeline.config import CAMINHO_DATASET_PARQUET
 def construir_dataset_consolidado(target_name: str = "familia_dengue") -> pd.DataFrame:
     """
     Constrói o dataset consolidado agregando dados de casos, históricos de população e clima.
@@ -161,3 +162,98 @@ def preparar_matriz_design(df: pd.DataFrame, config: str, dummy_columns: list[st
     y = np.log1p(target_raw)
     
     return X, y, frame, features, spec
+
+
+def construir_pipeline_features(config: str) -> tuple[ColumnTransformer, list[str]]:
+    """
+    Constrói um ColumnTransformer que encapsula o pré-processamento de features
+    de forma isolada por fold, eliminando vazamento de dados (schema leakage).
+
+    O pipeline aplica:
+      - OneHotEncoder(handle_unknown='ignore') para a coluna 'RA' (quando spec["ra"]=True)
+      - Passthrough para todas as features numéricas base
+
+    Parâmetros:
+        config (str): Configuração de features (e.g. 'lag+clima+RA').
+
+    Retorna:
+        tuple: (column_transformer, lista_features_numericas)
+    """
+    spec = obter_configuracao_features(config)
+    features_numericas = list(spec["base"])
+
+    if spec["population"]:
+        features_numericas.append("populacao")
+
+    transformers = [
+        ("num", "passthrough", features_numericas),
+    ]
+
+    if spec["ra"]:
+        transformers.append(
+            (
+                "cat",
+                OneHotEncoder(handle_unknown="ignore", sparse_output=False, dtype=float),
+                ["RA"],
+            )
+        )
+
+    ct = ColumnTransformer(transformers=transformers, remainder="drop")
+    return ct, features_numericas
+
+
+def construir_pipeline_modelo(config: str, modelo) -> Pipeline:
+    """
+    Constrói um Pipeline scikit-learn completo que encadeia:
+      1. Pré-processamento (ColumnTransformer com OHE isolado)
+      2. Regressão com transformação automática do target (log1p / expm1)
+
+    O TransformedTargetRegressor garante que a transformação logarítmica do target
+    e sua inversão são acopladas nativamente ao ciclo fit/predict, eliminando
+    a necessidade de desfazer manualmente a escala via np.expm1.
+
+    Parâmetros:
+        config (str): Configuração de features (e.g. 'lag+clima+RA').
+        modelo: Instância de regressor compatível com scikit-learn (e.g. RandomForestRegressor).
+
+    Retorna:
+        Pipeline: Pipeline completo pronto para fit/predict.
+    """
+    ct, _ = construir_pipeline_features(config)
+
+    # TransformedTargetRegressor: automatiza log1p no fit e expm1 no predict
+    regressor_transformado = TransformedTargetRegressor(
+        regressor=modelo,
+        func=np.log1p,
+        inverse_func=np.expm1,
+    )
+
+    pipeline = Pipeline(
+        steps=[
+            ("preprocessor", ct),
+            ("regressor", regressor_transformado),
+        ]
+    )
+    return pipeline
+
+
+def obter_colunas_entrada_pipeline(config: str) -> list[str]:
+    """
+    Retorna a lista de colunas que o DataFrame de entrada deve conter
+    para ser processado pelo pipeline construído para a config dada.
+
+    Útil para filtrar o DataFrame antes de passar ao pipeline.fit() / .predict().
+
+    Parâmetros:
+        config (str): Configuração de features.
+
+    Retorna:
+        list[str]: Lista de nomes de colunas necessárias.
+    """
+    spec = obter_configuracao_features(config)
+    colunas = list(spec["base"])
+    if spec["population"]:
+        colunas.append("populacao")
+    if spec["ra"]:
+        colunas.append("RA")
+    return colunas
