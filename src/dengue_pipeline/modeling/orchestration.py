@@ -33,7 +33,7 @@ from dengue_pipeline.modeling.conformal_prediction import (
     aplicar_limites_confianca,
     salvar_calibracao,
 )
-from dengue_pipeline.modeling.types import AblationResult
+from dengue_pipeline.modeling.types import AblationResult, MultiHorizonForecastResult
 
 import logging
 logger = logging.getLogger(__name__)
@@ -329,3 +329,205 @@ def executar_validacao_temporal(df: pd.DataFrame, run_dir: Path | None = None) -
         pred_closed_ci.assign(modo="forecast_fechado_recursivo").to_csv(BASE_DIR / "resultados_modelagem" / "predicoes_forecast_fechado.csv", index=False)
     
     return result
+
+
+# ---------------------------------------------------------------------------
+# Direct Multi-Horizon Forecasting — TDD-09
+# ---------------------------------------------------------------------------
+
+def _construir_target_horizonte(
+    df: pd.DataFrame,
+    target_col: str,
+    k: int,
+) -> pd.DataFrame:
+    """
+    Constrói o target deslocado ``k`` passos à frente por RA.
+
+    Para cada RA, desloca a coluna de target ``k`` posições para trás (shift(-k)),
+    de modo que a linha ``t`` passe a ter como target o valor da semana ``t + k``.
+    Remove as linhas com ``NaN`` resultantes do shift (últimas ``k`` observações
+    de cada RA).
+
+    Parâmetros:
+        df (pd.DataFrame): Dataset completo (treino) com ``epi_sunday``, ``RA``,
+            e a coluna de target.
+        target_col (str): Nome da coluna de target (``cases`` ou ``incidencia_100k``).
+        k (int): Horizonte de previsão (k=1 → próxima semana).
+
+    Retorna:
+        pd.DataFrame: DataFrame com coluna ``target_k`` adicionada e ``NaN``
+            removidos; alinhado com as features do tempo ``t``.
+    """
+    result = df.copy()
+    result = result.sort_values(["RA", "epi_sunday"]).reset_index(drop=True)
+    result["target_k"] = result.groupby("RA")[target_col].shift(-k)
+    # Remover linhas sem target (últimas k semanas de cada RA)
+    result = result.dropna(subset=["target_k"]).reset_index(drop=True)
+    return result
+
+
+def executar_forecast_direto_multihorizonte(
+    df: pd.DataFrame,
+    config: str = "lag+clima+RA",
+    nome_modelo: str = "RF",
+    max_horizonte: int = 4,
+    ano_teste: int = 2025,
+    run_dir: Path | None = None,
+) -> list[MultiHorizonForecastResult]:
+    """
+    Executa o forecast direto multi-horizonte (Direct Multi-Horizon Strategy).
+
+    Para cada horizonte ``k`` de 1 a ``max_horizonte``:
+      1. Constrói o target deslocado ``y_{t+k}`` usando ``shift(-k)`` por RA
+      2. Treina um ``sklearn.Pipeline`` independente com as features do tempo ``t``
+      3. Gera previsões no conjunto de teste
+      4. Calcula métricas de avaliação (incluindo métricas probabilísticas TDD-08)
+      5. Serializa o pipeline no caminho ``config.py`` padronizado
+      6. Encapsula o resultado em ``MultiHorizonForecastResult``
+
+    Esta abordagem elimina o **exposure bias** da previsão recursiva:
+    os features usados são sempre valores reais observados, nunca predições
+    anteriores do modelo.
+
+    **Limitação V1:** Cada horizonte usa a mesma grade de hiperparâmetros.
+    Paralelização via ``joblib`` é planejada para V2.
+
+    Parâmetros:
+        df (pd.DataFrame): Dataset completo processado.
+        config (str): Configuração de features (default ``lag+clima+RA``).
+        nome_modelo (str): Algoritmo (``RF`` ou ``XGB``). Default ``RF``.
+        max_horizonte (int): Número máximo de horizontes ``K``. Default 4.
+        ano_teste (int): Ano de corte temporal. Default 2025.
+        run_dir (Path, opcional): Subdiretório versionado da run.
+
+    Retorna:
+        list[MultiHorizonForecastResult]: Lista de K resultados, um por horizonte.
+    """
+    from joblib import dump as joblib_dump
+    from dengue_pipeline.config import caminho_pipeline_horizonte, caminho_metricas_horizonte
+
+    logger.info(
+        ">>> TDD-09: Direct Multi-Horizon Forecasting (K=%d, config=%s, modelo=%s)",
+        max_horizonte, config, nome_modelo,
+    )
+
+    train, test = dividir_treino_teste_temporal(df, ano_teste)
+    spec = obter_configuracao_features(config)
+    colunas_pipeline = obter_colunas_entrada_pipeline(config)
+    target_col = spec["target"]
+
+    results: list[MultiHorizonForecastResult] = []
+
+    for k in range(1, max_horizonte + 1):
+        logger.info("  Horizonte k=%d: construindo target deslocado...", k)
+
+        # --- 1. Construir target deslocado y_{t+k} ---
+        train_k = _construir_target_horizonte(train, target_col, k)
+        test_k = _construir_target_horizonte(test, target_col, k)
+
+        # Preparar frames limpos para o pipeline
+        train_frame = _preparar_entrada_pipeline(train_k, config)
+        test_frame = _preparar_entrada_pipeline(test_k, config)
+
+        if train_frame.empty or test_frame.empty:
+            logger.warning("  Horizonte k=%d: dados insuficientes, pulando.", k)
+            continue
+
+        # Validar alinhamento X/y
+        y_train = train_frame["target_k"].astype(float)
+        assert len(train_frame) == len(y_train), (
+            f"Desalinhamento X/y no horizonte k={k}: "
+            f"X={len(train_frame)}, y={len(y_train)}"
+        )
+        logger.info(
+            "  Horizonte k=%d: %d amostras treino, %d amostras teste",
+            k, len(train_frame), len(test_frame),
+        )
+
+        # --- 2. Treinar pipeline independente para horizonte k ---
+        modelo = fabrica_modelos(nome_modelo)
+        pipeline_k = construir_pipeline_modelo(config, modelo)
+
+        X_train = train_frame[colunas_pipeline]
+        pipeline_k.fit(X_train, y_train)
+
+        # --- 3. Gerar previsões no teste ---
+        preds = _prever_com_pipeline(pipeline_k, test_frame, config, spec)
+
+        pred_df = test_frame[["epi_sunday", "RA", "cases", "incidencia_100k", "populacao"]].copy()
+        pred_df["prediction"] = preds
+
+        # --- 4. Calcular métricas (TDD-08 integrado) ---
+        metrics_k, _ = consolidar_metricas_performance(pred_df)
+        metrics_k["horizon"] = k
+
+        logger.info(
+            "  Horizonte k=%d: RMSE=%.2f, MAE=%.2f, R²=%.4f",
+            k, metrics_k.get("rmse_df", float("nan")),
+            metrics_k.get("mae_df", float("nan")),
+            metrics_k.get("r2_df", float("nan")),
+        )
+
+        # --- 5. Serializar pipeline ---
+        out_path = caminho_pipeline_horizonte(k, run_dir)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        joblib_dump(
+            {
+                "pipeline": pipeline_k,
+                "config": config,
+                "modelo": nome_modelo,
+                "horizon": k,
+                "features": colunas_pipeline,
+                "metrics": metrics_k,
+            },
+            out_path,
+        )
+        # Duplicar no diretório padrão se run_dir fornecido
+        if run_dir:
+            fallback_path = caminho_pipeline_horizonte(k, run_dir=None)
+            fallback_path.parent.mkdir(parents=True, exist_ok=True)
+            joblib_dump(
+                {
+                    "pipeline": pipeline_k,
+                    "config": config,
+                    "modelo": nome_modelo,
+                    "horizon": k,
+                    "features": colunas_pipeline,
+                    "metrics": metrics_k,
+                },
+                fallback_path,
+            )
+
+        # Salvar métricas JSON
+        metrics_path = caminho_metricas_horizonte(k, run_dir)
+        metrics_path.parent.mkdir(parents=True, exist_ok=True)
+        import json as _json
+        metrics_path.write_text(
+            _json.dumps(metrics_k, indent=2, ensure_ascii=False, default=str),
+            encoding="utf-8",
+        )
+        if run_dir:
+            fallback_metrics = caminho_metricas_horizonte(k, run_dir=None)
+            fallback_metrics.write_text(
+                _json.dumps(metrics_k, indent=2, ensure_ascii=False, default=str),
+                encoding="utf-8",
+            )
+
+        logger.info("  Horizonte k=%d: serializado em %s", k, out_path)
+
+        # --- 6. Encapsular resultado ---
+        results.append(
+            MultiHorizonForecastResult(
+                horizon=k,
+                pipeline=pipeline_k,
+                predictions=pred_df,
+                metrics=metrics_k,
+            )
+        )
+
+    logger.info(
+        ">>> TDD-09: concluído — %d horizontes treinados com sucesso.",
+        len(results),
+    )
+    return results
+

@@ -40,3 +40,27 @@ class AblationResult(NamedTuple):
     ablation_summary: pd.DataFrame
     winner_specification: dict[str, Any]
     all_metrics: dict[str, dict[str, float]]
+
+
+class MultiHorizonForecastResult(NamedTuple):
+    """
+    Contrato de interface para o resultado de um forecast direto por horizonte.
+
+    Cada horizonte k (1 = próxima semana, 2 = duas semanas, etc.) é treinado
+    com um sklearn.Pipeline independente usando como target ``y_{t+k}``,
+    eliminando o exposure bias da previsão recursiva.
+
+    Definido em conformidade com RFC-04 (contratos de interface via NamedTuple).
+
+    Atributos:
+        horizon: Horizonte k (1 = próxima semana, 2 = duas semanas, etc.).
+        pipeline: sklearn.Pipeline completo (preprocessor + regressor).
+        predictions: DataFrame com colunas epi_sunday, RA, cases, prediction
+            (e opcionalmente lower_ci, upper_ci).
+        metrics: Dicionário de métricas de avaliação deste horizonte
+            (RMSE, MAE, coverage, WIS, etc.).
+    """
+    horizon: int
+    pipeline: Any
+    predictions: pd.DataFrame
+    metrics: dict[str, float]

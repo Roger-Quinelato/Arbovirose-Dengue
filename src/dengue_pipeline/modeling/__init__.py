@@ -34,6 +34,7 @@ from dengue_pipeline.modeling.evaluation import (
 from dengue_pipeline.modeling.orchestration import (
     executar_estudo_ablacao,
     executar_validacao_temporal,
+    executar_forecast_direto_multihorizonte,
 )
 from dengue_pipeline.modeling.conformal_prediction import (
     calibrar_intervalos_confianca,
@@ -44,6 +45,7 @@ from dengue_pipeline.modeling.conformal_prediction import (
 from dengue_pipeline.modeling.types import (
     TuningResult,
     AblationResult,
+    MultiHorizonForecastResult,
 )
 
 # Aliases para retrocompatibilidade

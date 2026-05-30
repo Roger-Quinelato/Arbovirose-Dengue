@@ -76,3 +76,44 @@ def setup_logging(run_id: str) -> None:
             logging.StreamHandler(),
         ]
     )
+
+
+# ---------------------------------------------------------------------------
+# Convenções de caminhos para Direct Multi-Horizon Forecasting (TDD-09)
+# ---------------------------------------------------------------------------
+
+def caminho_pipeline_horizonte(k: int, run_dir: Path | None = None) -> Path:
+    """
+    Retorna o caminho de artefato para o pipeline serializado do horizonte ``k``.
+
+    Convenção: ``direct_mh_pipeline_k{k}.pkl``
+
+    Parâmetros:
+        k (int): Horizonte de previsão (1 = próxima semana, etc.).
+        run_dir (Path, opcional): Subdiretório versionado da run.
+            Se ``None``, usa ``MODELOS_DIR``.
+
+    Retorna:
+        Path: Caminho completo para o artefato ``.pkl``.
+    """
+    base = run_dir if run_dir else MODELOS_DIR
+    return base / f"direct_mh_pipeline_k{k}.pkl"
+
+
+def caminho_metricas_horizonte(k: int, run_dir: Path | None = None) -> Path:
+    """
+    Retorna o caminho de artefato para as métricas JSON do horizonte ``k``.
+
+    Convenção: ``metrics_horizon_k{k}.json``
+
+    Parâmetros:
+        k (int): Horizonte de previsão.
+        run_dir (Path, opcional): Subdiretório versionado da run.
+            Se ``None``, usa ``MODELOS_DIR``.
+
+    Retorna:
+        Path: Caminho completo para o artefato ``.json``.
+    """
+    base = run_dir if run_dir else MODELOS_DIR
+    return base / f"metrics_horizon_k{k}.json"
+
